@@ -1,0 +1,73 @@
+SUSPICIOUS TRANSACTION REPORT (STR)
+══════════════════════════════════════════
+
+Report Reference: STR-{{ account_id[-6:] }}-{{ now | default('20250101') }}
+Generated: Automated Analysis — GraphGuard v2 Intelligence Platform
+
+═══════════════════════════════════════════
+1. SUBJECT INFORMATION
+═══════════════════════════════════════════
+  Account Number:  {{ account_id }}
+  Account Holder:  {{ account_info.holder_name | default('Under Investigation') }}
+  Account Type:    {{ account_info.account_type | default('N/A') }}
+  Branch:          {{ account_info.branch | default('N/A') }}
+  City:            {{ account_info.city | default('N/A') }}
+
+═══════════════════════════════════════════
+2. SUSPICIOUS ACTIVITY DESCRIPTION
+═══════════════════════════════════════════
+
+The account {{ account_id }} has been identified through automated
+multi-layer intelligence analysis with a composite risk score of
+{{ "%.2f%%" | format(scores.fused_score | default(0) * 100) }} (Severity: {{ severity }}).
+
+The following suspicious patterns have been detected:
+{% for pattern in detected_patterns %}
+  {{ loop.index }}. {{ pattern }}
+{% endfor %}
+{% if not detected_patterns %}
+  Multiple risk indicators have converged above alerting thresholds
+  across edge, graph, and temporal analysis dimensions.
+{% endif %}
+
+═══════════════════════════════════════════
+3. INTELLIGENCE ANALYSIS
+═══════════════════════════════════════════
+
+3.1 Edge-Level Risk Assessment:
+    Score: {{ "%.2f%%" | format(scores.edge_score | default(0) * 100) }}
+    Individual transaction-level features indicate
+    {{ "HIGH" if scores.edge_score | default(0) > 0.7 else "MODERATE" if scores.edge_score | default(0) > 0.4 else "LOW" }}
+    anomaly in fund movement patterns.
+
+3.2 Graph-Level Risk Assessment:
+    Score: {{ "%.2f%%" | format(scores.graph_score | default(0) * 100) }}
+{% if graph_patterns.cycles %}    CIRCULAR FLOWS DETECTED:
+{% for cycle in graph_patterns.cycles %}    Cycle {{ loop.index }}: {{ cycle | join(' → ') }} → {{ cycle[0] }}
+{% endfor %}{% endif %}
+{% if graph_patterns.layering_chains %}    LAYERING CHAINS DETECTED:
+{% for chain in graph_patterns.layering_chains %}    Chain {{ loop.index }}: {{ chain | join(' → ') }}
+{% endfor %}{% endif %}
+{% if graph_patterns.is_mule_hub %}    HUB-AND-SPOKE PATTERN: Account functions as central redistribution node.
+{% endif %}
+
+3.3 Temporal Behavior Assessment:
+    Score: {{ "%.2f%%" | format(scores.temporal_score | default(0) * 100) }}
+{% if temporal_profile %}    Average fund retention: {{ temporal_profile.avg_retention_hrs }} hours
+    Peak outflow density: {{ temporal_profile.peak_hop_density_per_hr }} transfers/hour
+    Burst redistribution events: {{ temporal_profile.burst_redistribution_count }}
+    Unique beneficiaries: {{ temporal_profile.unique_beneficiaries }}
+{% endif %}
+
+═══════════════════════════════════════════
+4. CONCLUSION & RECOMMENDATION
+═══════════════════════════════════════════
+
+Based on the automated multi-dimensional analysis, the activity
+associated with {{ account_id }} is {{ "highly suspicious and consistent with potential money laundering activity" if scores.fused_score | default(0) > 0.7 else "suspicious and warrants further investigation" }}.
+
+{{ "IMMEDIATE ACTION RECOMMENDED: Escalate to AML compliance team and consider transaction freeze." if severity in ['CRITICAL', 'HIGH'] else "RECOMMENDED: Enhanced monitoring and scheduled compliance review." }}
+
+═══════════════════════════════════════════
+END OF REPORT — GraphGuard v2 Automated Intelligence
+═══════════════════════════════════════════

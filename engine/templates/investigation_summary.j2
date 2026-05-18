@@ -1,0 +1,44 @@
+═══ INVESTIGATION SUMMARY ═══
+Subject: {{ account_id }}
+Severity: {{ severity }} | Risk Score: {{ scores.fused_score | default(0) | round(4) }}
+Account Holder: {{ account_info.holder_name | default('Under Investigation') }}
+Account Type: {{ account_info.account_type | default('N/A') }}
+Branch: {{ account_info.branch | default('N/A') }}
+
+──────────────────────────────────────────
+DETECTED PATTERNS:
+{% for pattern in detected_patterns %}  ▸ {{ pattern }}
+{% endfor %}{% if not detected_patterns %}  No specific patterns detected — elevated aggregate risk
+{% endif %}
+
+SCORE BREAKDOWN:
+  Edge Intelligence:     {{ "%.2f%%" | format(scores.edge_score | default(0) * 100) }}
+  Graph Intelligence:    {{ "%.2f%%" | format(scores.graph_score | default(0) * 100) }}
+  Temporal Intelligence: {{ "%.2f%%" | format(scores.temporal_score | default(0) * 100) }}
+  ────────────────────────────
+  Fused Risk Score:      {{ "%.2f%%" | format(scores.fused_score | default(0) * 100) }}
+
+{% if temporal_profile %}TEMPORAL BEHAVIOR:
+  Avg Propagation Speed:    {{ temporal_profile.avg_propagation_speed_hrs }} hrs
+  Min Retention Time:       {{ temporal_profile.min_retention_hrs }} hrs
+  Peak Activity Density:    {{ temporal_profile.peak_hop_density_per_hr }}/hr
+  Burst Redistributions:    {{ temporal_profile.burst_redistribution_count }}
+  Total Outflows:           {{ temporal_profile.total_outflows }}
+  Unique Beneficiaries:     {{ temporal_profile.unique_beneficiaries }}
+{% endif %}
+
+{% if graph_patterns.cycles %}CIRCULAR FLOW EVIDENCE:
+{% for cycle in graph_patterns.cycles %}  Cycle: {{ cycle | join(' → ') }} → {{ cycle[0] }}
+{% endfor %}{% endif %}
+
+{% if graph_patterns.layering_chains %}LAYERING CHAIN EVIDENCE:
+{% for chain in graph_patterns.layering_chains %}  Chain: {{ chain | join(' → ') }}
+{% endfor %}{% endif %}
+
+{% if graph_patterns.is_mule_hub %}MULE HUB INDICATOR:
+  This account exhibits hub-and-spoke distribution characteristics.
+{% endif %}
+
+{% if edge_explanations %}TOP RISK FEATURES:
+{% for name, value, importance in edge_explanations %}  {{ name }}: {{ value }} (importance: {{ importance }})
+{% endfor %}{% endif %}

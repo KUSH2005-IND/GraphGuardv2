@@ -1,0 +1,12 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+websockets==12.0
+xgboost==2.1.0
+scikit-learn==1.5.0
+networkx==3.3
+python-louvain==0.16
+pandas==2.2.0
+numpy==1.26.4
+faker==28.0.0
+jinja2==3.1.4
+python-multipart==0.0.9

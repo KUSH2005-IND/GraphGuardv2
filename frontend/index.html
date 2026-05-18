@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GraphGuard v2 — Real-time Temporal Fund-Flow Intelligence Platform for Fraud Detection">
+    <title>GraphGuard v2 — Fraud Intelligence Platform</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Initializing fraud intelligence pipeline...</div>
+    </div>
+
+    <!-- Header -->
+    <header class="header" id="header">
+        <div class="header-brand">
+            <div class="header-logo">G</div>
+            <div>
+                <div class="header-title">GraphGuard v2</div>
+                <div class="header-subtitle">Temporal Fund-Flow Intelligence</div>
+            </div>
+        </div>
+
+        <div class="header-stats">
+            <div class="stat-pill">
+                <div class="stat-dot live"></div>
+                <span class="stat-value" id="statProcessed">0</span>
+                <span class="stat-label">Processed</span>
+            </div>
+            <div class="stat-pill">
+                <div class="stat-dot alert"></div>
+                <span class="stat-value" id="statAlerts">0</span>
+                <span class="stat-label">Alerts</span>
+            </div>
+            <div class="stat-pill">
+                <span class="stat-value" id="statAccounts">0</span>
+                <span class="stat-label">Accounts</span>
+            </div>
+            <div class="status-badge online" id="statusBadge">
+                <div class="stat-dot live"></div>
+                <span>LIVE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="main-grid" id="mainGrid">
+
+        <!-- Left: Transaction Feed -->
+        <div class="panel" id="feedPanel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="icon">⚡</span> Live Transaction Feed
+                </div>
+                <span class="panel-badge" id="feedCount">0</span>
+            </div>
+            <div class="panel-body" id="feedBody">
+                <div class="empty-state">
+                    <span class="icon">📊</span>
+                    <p>Waiting for transaction stream...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Graph Visualization -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="icon">🔗</span> Suspicious Subgraph
+                </div>
+                <span class="panel-badge" id="graphInfo">Select an alert</span>
+            </div>
+            <div class="graph-container" id="graphContainer">
+                <div class="graph-placeholder" id="graphPlaceholder">
+                    <span class="icon">🕸️</span>
+                    <p>Click on a risk alert to visualize the suspicious fund-flow subgraph</p>
+                </div>
+                <div id="graphCanvas"></div>
+            </div>
+        </div>
+
+        <!-- Right: Risk Alerts -->
+        <div class="panel" id="alertPanel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span class="icon">🚨</span> Risk Alerts
+                </div>
+                <span class="panel-badge" id="alertCount">0</span>
+            </div>
+            <div class="panel-body" id="alertBody">
+                <div class="empty-state">
+                    <span class="icon">🔍</span>
+                    <p>Loading alerts...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom: Investigation Panel -->
+        <div class="investigation-panel" id="investigationPanel">
+            <div style="position: relative;">
+                <button class="inv-close" id="invClose" title="Close investigation">✕</button>
+                <div class="inv-content" id="invContent">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
