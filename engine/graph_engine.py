@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
 try:
+    # pyrefly: ignore [missing-import]
     import community as community_louvain
     HAS_LOUVAIN = True
 except ImportError:
@@ -102,29 +103,70 @@ class GraphIntelligenceEngine:
         return True
 
     def _detect_layering(self, G: nx.DiGraph):
-        """Detect multi-hop chains within short time windows."""
+        """Detect multi-hop chains within short time windows — fast DFS version."""
         print("[GraphEngine]   Detecting layering chains...")
         chains = []
-        high_out = [n for n, d in G.out_degree() if d >= 3]
 
-        for source in high_out[:200]:
-            for target in G.successors(source):
-                try:
-                    for path in nx.all_simple_paths(G, source, target, cutoff=config.MAX_CYCLE_LENGTH):
-                        if len(path) >= 4:
-                            if self._is_rapid_chain(path):
-                                chains.append(path)
-                        if len(chains) >= 50:
-                            break
-                except (nx.NetworkXError, nx.NodeNotFound):
-                    pass
-                if len(chains) >= 50:
-                    break
+        # Only check top 30 nodes by out-degree — most likely layering sources
+        high_out = sorted(
+            G.nodes(), key=lambda n: G.out_degree(n), reverse=True
+        )[:30]
+
+        for source in high_out:
             if len(chains) >= 50:
                 break
 
+        # Bounded DFS — strict limits prevent combinatorial explosion
+        stack = [[source]]
+        paths_explored = 0
+
+        while stack and len(chains) < 50 and paths_explored < 300:
+            path = stack.pop()
+            paths_explored += 1
+            current = path[-1]
+
+            # Chain is long enough to be suspicious
+            if len(path) >= 4:
+                if self._is_rapid_chain(path):
+                    chains.append(list(path))
+                continue  # Don't extend further
+
+            # Hard depth limit
+            if len(path) >= config.MAX_CYCLE_LENGTH:
+                continue
+
+            # Only check first 5 successors to bound branching factor
+            for neighbor in list(G.successors(current))[:5]:
+                if neighbor not in path:  # No revisiting nodes
+                    stack.append(path + [neighbor])
+
         self.detected_patterns["layering_chains"] = chains
         print(f"[GraphEngine]   Found {len(chains)} layering chains")
+
+    # def _detect_layering(self, G: nx.DiGraph):
+    #     """Detect multi-hop chains within short time windows."""
+    #     print("[GraphEngine]   Detecting layering chains...")
+    #     chains = []
+    #     high_out = [n for n, d in G.out_degree() if d >= 3]
+
+    #     for source in high_out[:200]:
+    #         for target in G.successors(source):
+    #             try:
+    #                 for path in nx.all_simple_paths(G, source, target, cutoff=config.MAX_CYCLE_LENGTH):
+    #                     if len(path) >= 4:
+    #                         if self._is_rapid_chain(path):
+    #                             chains.append(path)
+    #                     if len(chains) >= 50:
+    #                         break
+    #             except (nx.NetworkXError, nx.NodeNotFound):
+    #                 pass
+    #             if len(chains) >= 50:
+    #                 break
+    #         if len(chains) >= 50:
+    #             break
+
+    #     self.detected_patterns["layering_chains"] = chains
+    #     print(f"[GraphEngine]   Found {len(chains)} layering chains")
 
     def _is_rapid_chain(self, path: List[str]) -> bool:
         """Check if a chain completes within a short window."""
@@ -257,6 +299,7 @@ class GraphIntelligenceEngine:
             if node not in self.account_graph_scores:
                 self.account_graph_scores[node] = 0.0
 
+
     def get_suspicious_subgraph(self, account_id: str, hops: int = 2) -> Dict:
         """Extract ego-subgraph for investigation visualization."""
         if account_id not in self.G:
@@ -264,6 +307,18 @@ class GraphIntelligenceEngine:
 
         ego = nx.ego_graph(self.G.to_undirected(), account_id, radius=hops)
         ego_directed = self.G.subgraph(ego.nodes())
+
+        # ── Cap at 60 nodes for vis.js performance ──────────────────
+        if len(ego_directed.nodes()) > 60:
+            degrees = dict(self.G.degree())
+            degrees[account_id] = 999999  # always keep center node
+            top_nodes = sorted(
+                ego_directed.nodes(),
+                key=lambda n: degrees.get(n, 0),
+                reverse=True
+            )[:60]
+            ego_directed = self.G.subgraph(top_nodes)
+        # ────────────────────────────────────────────────────────────
 
         nodes = []
         for n in ego_directed.nodes():
@@ -288,11 +343,49 @@ class GraphIntelligenceEngine:
             edges.append({
                 "from": u, "to": v, "tx_id": data.get("tx_id", key),
                 "amount": data.get("amount", 0),
-                "timestamp": data.get("timestamp", datetime.min).isoformat() if data.get("timestamp") else "",
+                "timestamp": data.get("timestamp", datetime.min).isoformat()
+                             if data.get("timestamp") else "",
                 "is_fraud": data.get("is_fraud", False),
             })
 
         return {"nodes": nodes, "edges": edges}
+
+    # def get_suspicious_subgraph(self, account_id: str, hops: int = 2) -> Dict:
+    #     """Extract ego-subgraph for investigation visualization."""
+    #     if account_id not in self.G:
+    #         return {"nodes": [], "edges": []}
+
+    #     ego = nx.ego_graph(self.G.to_undirected(), account_id, radius=hops)
+    #     ego_directed = self.G.subgraph(ego.nodes())
+
+    #     nodes = []
+    #     for n in ego_directed.nodes():
+    #         nd = self.G.nodes[n]
+    #         gs = self.account_graph_scores.get(n, 0)
+    #         in_cycle = any(n in c for c in self.detected_patterns["cycles"])
+    #         in_chain = any(n in c for c in self.detected_patterns["layering_chains"])
+    #         is_hub = any(h["account_id"] == n for h in self.detected_patterns["mule_hubs"])
+
+    #         nodes.append({
+    #             "id": n, "label": n[-6:],
+    #             "name": nd.get("name", "Unknown"),
+    #             "type": nd.get("type", "unknown"),
+    #             "branch": nd.get("branch", ""),
+    #             "is_dormant": nd.get("is_dormant", False),
+    #             "graph_score": gs, "is_center": n == account_id,
+    #             "in_cycle": in_cycle, "in_chain": in_chain, "is_hub": is_hub,
+    #         })
+
+    #     edges = []
+    #     for u, v, key, data in ego_directed.edges(data=True, keys=True):
+    #         edges.append({
+    #             "from": u, "to": v, "tx_id": data.get("tx_id", key),
+    #             "amount": data.get("amount", 0),
+    #             "timestamp": data.get("timestamp", datetime.min).isoformat() if data.get("timestamp") else "",
+    #             "is_fraud": data.get("is_fraud", False),
+    #         })
+
+    #     return {"nodes": nodes, "edges": edges}
 
     def get_patterns_for_account(self, account_id: str) -> Dict:
         """Get all detected patterns involving this account."""

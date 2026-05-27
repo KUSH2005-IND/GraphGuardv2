@@ -17,8 +17,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Data Generation ──────────────────────────────────────────────────────────
-NUM_ACCOUNTS = 5000
-NUM_LEGIT_TRANSACTIONS = 45000
+NUM_ACCOUNTS = 500
+NUM_LEGIT_TRANSACTIONS = 4500
 SIMULATION_DAYS = 90
 BRANCHES = ["Mumbai-HQ", "Delhi-North", "Bangalore-Tech", "Chennai-South",
             "Kolkata-East", "Hyderabad-Central", "Pune-West", "Ahmedabad-Gujarat"]
@@ -101,7 +101,7 @@ MAX_CYCLE_LENGTH = 6
 CENTRALITY_THRESHOLD = 0.7      # Top 30% by centrality flagged
 HUB_DEGREE_THRESHOLD = 10       # Min outgoing edges to flag as hub
 COMMUNITY_MIN_SIZE = 3
-SUBGRAPH_HOPS = 2               # Default ego-graph radius
+SUBGRAPH_HOPS = 2                # Default ego-graph radius(=2)
 
 # ── Temporal Intelligence ────────────────────────────────────────────────────
 TEMPORAL_WINDOW_HOURS = 48

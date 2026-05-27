@@ -59,6 +59,11 @@ async function init() {
 
     // Setup event listeners
     dom.invClose.addEventListener('click', closeInvestigation);
+    dom.invPanel.addEventListener('transitionend', (e) => {
+        if (e.propertyName === 'max-height') {
+            resizeGraph();
+        }
+    });
 
     console.log('[GraphGuard] Ready.');
 }
@@ -92,12 +97,13 @@ async function loadGraph(accountId) {
         dom.graphInfo.textContent = `Loading ${accountId}...`;
         const res = await fetch(`/api/graph/${accountId}`);
         const graph = await res.json();
-        renderGraph(graph, accountId);
         dom.graphPlaceholder.style.display = 'none';
+        renderGraph(graph, accountId);
         dom.graphInfo.textContent = `${accountId} — ${graph.nodes?.length || 0} nodes, ${graph.edges?.length || 0} edges`;
     } catch (e) {
         console.error('[Graph]', e);
         dom.graphInfo.textContent = 'Error loading graph';
+        dom.graphPlaceholder.style.display = 'flex';
     }
 }
 
@@ -290,7 +296,7 @@ function renderGraph(data, centerId) {
         return {
             id: n.id,
             label: n.label,
-            title: `${n.id}\n${n.name}\nType: ${n.type}\nBranch: ${n.branch}\nGraph Score: ${(score*100).toFixed(0)}%`,
+            title: `${n.id}\n${n.name}\nType: ${n.type}\nBranch: ${n.branch}\nGraph Score: ${(score * 100).toFixed(0)}%`,
             size: size,
             color: {
                 background: color,
@@ -322,37 +328,38 @@ function renderGraph(data, centerId) {
         smooth: { type: 'curvedCW', roundness: 0.2 },
     }));
 
+    // ── Pre-position nodes in a circle ──────────────
+    const otherNodes = nodes.filter(n => !n.is_center);
+    const positionedNodes = nodes.map(n => {
+        if (n.is_center) return { ...n, x: 0, y: 0 };
+        const idx = otherNodes.indexOf(n);
+        const angle = (idx / Math.max(otherNodes.length, 1)) * 2 * Math.PI;
+        const r = 200 + idx * 5;
+        return { ...n, x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+    });
+
     const options = {
-        physics: {
-            forceAtlas2Based: {
-                gravitationalConstant: -40,
-                centralGravity: 0.005,
-                springLength: 150,
-                springConstant: 0.08,
-                damping: 0.4,
-            },
-            solver: 'forceAtlas2Based',
-            stabilization: { iterations: 100 },
-        },
-        interaction: {
-            hover: true,
-            tooltipDelay: 100,
-            zoomView: true,
-            dragView: true,
-        },
-        layout: { improvedLayout: true },
+        layout: { improvedLayout: false },
+        physics: { enabled: false },          // instant render, no buffering
+        interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true }
     };
 
-    if (state.network) {
-        state.network.destroy();
-    }
+    // ── Filter edges to only include nodes that exist ──
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const safeEdges = edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+
+    if (state.network) state.network.destroy();
 
     state.network = new vis.Network(
         dom.graphCanvas,
-        { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) },
+        { nodes: new vis.DataSet(positionedNodes), edges: new vis.DataSet(safeEdges) },
         options
     );
-}
+
+    setTimeout(() => { if (state.network) state.network.fit(); }, 150);
+    setTimeout(() => { if (state.network) { state.network.setSize('100%', '100%'); state.network.fit(); } }, 500);
+
+} // ← closes renderGraph
 
 function renderInvestigation(inv) {
     const evidence = inv.evidence || {};
@@ -379,15 +386,15 @@ function renderInvestigation(inv) {
             </svg>
             <div class="inv-metric">
                 <span class="inv-metric-label">Edge Score</span>
-                <span class="inv-metric-value text-cyan">${((scores.edge_score||0)*100).toFixed(1)}%</span>
+                <span class="inv-metric-value text-cyan">${((scores.edge_score || 0) * 100).toFixed(1)}%</span>
             </div>
             <div class="inv-metric">
                 <span class="inv-metric-label">Graph Score</span>
-                <span class="inv-metric-value text-teal">${((scores.graph_score||0)*100).toFixed(1)}%</span>
+                <span class="inv-metric-value text-teal">${((scores.graph_score || 0) * 100).toFixed(1)}%</span>
             </div>
             <div class="inv-metric">
                 <span class="inv-metric-label">Temporal Score</span>
-                <span class="inv-metric-value text-violet">${((scores.temporal_score||0)*100).toFixed(1)}%</span>
+                <span class="inv-metric-value text-violet">${((scores.temporal_score || 0) * 100).toFixed(1)}%</span>
             </div>
             <div style="margin-top:12px;">
                 <div class="inv-section-title" style="margin-bottom:6px">🔍 Detected Patterns</div>
@@ -463,6 +470,14 @@ function closeInvestigation() {
     document.querySelectorAll('.alert-item.selected').forEach(el => el.classList.remove('selected'));
 }
 
+function resizeGraph() {
+    if (state.network) {
+        state.network.setSize('100%', '100%');
+        state.network.redraw();
+        state.network.fit();
+    }
+}
+
 function updateStats(data) {
     if (data.processed) {
         dom.statProcessed.textContent = formatNumber(data.processed);
@@ -520,3 +535,4 @@ function sleep(ms) {
 
 // ── Start ────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
+
