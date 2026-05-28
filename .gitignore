@@ -1,0 +1,31 @@
+# Environments
+venv/
+env/
+.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Generated data and models
+data/generated/
+models/*.pkl
+*.csv
+*.json
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+/stitch_graphguard_fraud_intelligence_platform/

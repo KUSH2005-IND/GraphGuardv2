@@ -129,3 +129,6 @@ MAX_ALERTS = 50    # Top N alerts to surface
 HOST = "0.0.0.0"
 PORT = 8000
 STREAM_INTERVAL_MS = 500     # Transaction stream speed for demo
+API_KEY = "GG-SECRET-KEY-2026"
+ALLOWED_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000", "ws://localhost:8000", "ws://127.0.0.1:8000"]
+MAX_WS_CONNECTIONS_PER_IP = 5

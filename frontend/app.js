@@ -48,7 +48,7 @@ async function init() {
         if (!ready) await sleep(1000);
     }
 
-    dom.loading.classList.add('hidden');
+    if (dom.loading) dom.loading.style.display = 'none';
 
     // Load initial data
     await loadStats();
@@ -58,23 +58,58 @@ async function init() {
     connectWebSocket();
 
     // Setup event listeners
-    dom.invClose.addEventListener('click', closeInvestigation);
-    dom.invPanel.addEventListener('transitionend', (e) => {
-        if (e.propertyName === 'max-height') {
-            resizeGraph();
+    if (dom.invClose) {
+        dom.invClose.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePanel(false);
+        });
+    }
+
+    // Mouse Tracker
+    document.addEventListener('mousemove', (e) => {
+        const glow = document.getElementById('cursor-glow');
+        if (glow) {
+            glow.style.left = e.clientX + 'px';
+            glow.style.top = e.clientY + 'px';
         }
     });
 
     console.log('[GraphGuard] Ready.');
 }
 
+// ── Toggle Panel Function (Stitch UI) ────────────────────────────────
+function togglePanel(forceOpen = null) {
+    const panel = dom.invPanel;
+    if (!panel) return;
+    
+    const isCollapsed = panel.classList.contains('translate-y-[160px]');
+    const shouldOpen = forceOpen !== null ? forceOpen : isCollapsed;
+    
+    if (shouldOpen) {
+        panel.style.display = 'flex';
+        setTimeout(() => {
+            panel.classList.remove('translate-y-[160px]');
+        }, 10);
+        triggerChartAnimations();
+    } else {
+        panel.classList.add('translate-y-[160px]');
+        setTimeout(() => {
+            panel.style.display = 'none';
+        }, 300);
+    }
+}
+
+// Make it global so HTML onclick can reach it
+window.togglePanel = togglePanel;
+
 // ── API Calls ────────────────────────────────────────────────────────
 async function loadStats() {
     try {
-        const res = await fetch('/api/stats');
+        const res = await fetch('/api/stats', { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const data = await res.json();
-        dom.statAccounts.textContent = formatNumber(data.total_accounts || 0);
-        dom.statAlerts.textContent = data.risk_stats?.total_alerts || 0;
+        
+        if (dom.statAccounts) animateCounter(dom.statAccounts, data.total_accounts || 0);
+        if (dom.statAlerts) animateCounter(dom.statAlerts, data.risk_stats?.total_alerts || 0);
     } catch (e) {
         console.error('[Stats]', e);
     }
@@ -82,11 +117,11 @@ async function loadStats() {
 
 async function loadAlerts() {
     try {
-        const res = await fetch('/api/alerts');
+        const res = await fetch('/api/alerts', { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const alerts = await res.json();
         renderAlerts(alerts);
-        dom.alertCount.textContent = alerts.length;
-        dom.statAlerts.textContent = alerts.length;
+        if (dom.alertCount) dom.alertCount.textContent = alerts.length;
+        if (dom.statAlerts) animateCounter(dom.statAlerts, alerts.length);
     } catch (e) {
         console.error('[Alerts]', e);
     }
@@ -94,25 +129,25 @@ async function loadAlerts() {
 
 async function loadGraph(accountId) {
     try {
-        dom.graphInfo.textContent = `Loading ${accountId}...`;
-        const res = await fetch(`/api/graph/${accountId}`);
+        if (dom.graphInfo) dom.graphInfo.textContent = `Loading ${escapeHtml(accountId)}...`;
+        const res = await fetch(`/api/graph/${accountId}`, { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const graph = await res.json();
-        dom.graphPlaceholder.style.display = 'none';
+        if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'none';
         renderGraph(graph, accountId);
-        dom.graphInfo.textContent = `${accountId} — ${graph.nodes?.length || 0} nodes, ${graph.edges?.length || 0} edges`;
+        if (dom.graphInfo) dom.graphInfo.textContent = `${escapeHtml(accountId)} — ${graph.nodes?.length || 0} nodes, ${graph.edges?.length || 0} edges`;
     } catch (e) {
         console.error('[Graph]', e);
-        dom.graphInfo.textContent = 'Error loading graph';
-        dom.graphPlaceholder.style.display = 'flex';
+        if (dom.graphInfo) dom.graphInfo.textContent = 'Error loading graph';
+        if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'flex';
     }
 }
 
 async function loadInvestigation(accountId) {
     try {
-        const res = await fetch(`/api/investigation/${accountId}`);
+        const res = await fetch(`/api/investigation/${accountId}`, { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const inv = await res.json();
-        renderInvestigation(inv);
-        dom.invPanel.classList.add('open');
+        renderInvestigation(inv, accountId);
+        togglePanel(true);
     } catch (e) {
         console.error('[Investigation]', e);
     }
@@ -165,76 +200,77 @@ function handleMessage(msg) {
 function addTransactionToFeed(tx) {
     state.txCount++;
     const score = tx.edge_score || 0;
-    const riskClass = getRiskClass(score);
+    const isHighRisk = score > 0.7;
 
-    const item = document.createElement('div');
-    item.className = `tx-item ${riskClass}`;
+    const row = document.createElement('tr');
+    row.className = 'hover:bg-primary-container/5 transition-colors group cursor-pointer slide-in-alert';
 
-    const senderShort = (tx.sender_id || '').slice(-6);
-    const receiverShort = (tx.receiver_id || '').slice(-6);
-    const amount = formatCurrency(tx.amount);
-    const time = formatTime(tx.timestamp);
+    const senderShort = escapeHtml((tx.sender_id || '').slice(-6));
+    const receiverShort = escapeHtml((tx.receiver_id || '').slice(-6));
+    const amount = escapeHtml(formatCurrency(tx.amount));
+    const time = escapeHtml(formatTime(tx.timestamp));
+    const scoreText = escapeHtml(score.toFixed(2));
 
-    item.innerHTML = `
-        <div class="tx-direction">→</div>
-        <div class="tx-details">
-            <div class="tx-accounts">${senderShort} → ${receiverShort}</div>
-            <div class="tx-meta">${tx.tx_type || 'transfer'} · ${tx.channel || ''} · ${time}</div>
-        </div>
-        <div class="tx-amount">${amount}</div>
-        <div class="tx-score ${riskClass}">${(score * 100).toFixed(0)}%</div>
+    row.innerHTML = `
+        <td class="px-4 py-3 font-data-mono text-[12px] text-on-surface-variant">${time}</td>
+        <td class="px-4 py-3">
+            <div class="font-data-mono text-[11px] text-primary">${senderShort}</div>
+            <div class="font-data-mono text-[11px] text-on-surface-variant">${receiverShort}</div>
+        </td>
+        <td class="px-4 py-3 text-right font-data-mono text-[12px] text-on-surface">${amount}</td>
+        <td class="px-4 py-3 text-center font-data-mono">
+            <span class="px-1.5 py-0.5 rounded-full ${isHighRisk ? 'bg-error/10 text-error border-error/20' : 'bg-surface-variant/30 text-on-surface-variant border-outline-variant/20'} text-[10px] font-bold border">${scoreText}</span>
+        </td>
     `;
 
     // Prepend to feed
-    if (dom.feedBody.querySelector('.empty-state')) {
+    if (dom.feedBody && dom.feedBody.querySelector('.empty-state')) {
         dom.feedBody.innerHTML = '';
     }
-    dom.feedBody.prepend(item);
-
-    // Limit feed size
-    while (dom.feedBody.children.length > state.maxFeedItems) {
-        dom.feedBody.removeChild(dom.feedBody.lastChild);
+    if (dom.feedBody) {
+        dom.feedBody.prepend(row);
+        while (dom.feedBody.children.length > state.maxFeedItems) {
+            dom.feedBody.removeChild(dom.feedBody.lastChild);
+        }
     }
 
-    dom.feedCount.textContent = state.txCount;
-    dom.statProcessed.textContent = formatNumber(state.txCount);
+    if (dom.feedCount) dom.feedCount.textContent = state.txCount;
+    if (dom.statProcessed) animateCounter(dom.statProcessed, state.txCount);
 }
 
 function renderAlerts(alerts) {
+    if (!dom.alertBody) return;
+    
     if (!alerts.length) {
-        dom.alertBody.innerHTML = '<div class="empty-state"><span class="icon">✓</span><p>No alerts</p></div>';
+        dom.alertBody.innerHTML = '<div class="text-[12px] text-on-surface-variant">No alerts</div>';
         return;
     }
 
     dom.alertBody.innerHTML = '';
     alerts.forEach(alert => {
         const el = document.createElement('div');
-        el.className = `alert-item ${alert.severity}`;
+        
+        const isCritical = alert.severity.toLowerCase() === 'critical';
+        const borderColor = isCritical ? 'border-error/30' : 'border-tertiary/20';
+        const hoverBorder = isCritical ? 'hover:border-error' : 'hover:border-tertiary';
+        const textColor = isCritical ? 'text-error' : 'text-tertiary';
+        const icon = isCritical ? 'warning' : 'info';
+        const pulseClass = isCritical ? 'critical-pulse' : '';
+        const pattern = alert.primary_pattern || 'Anomalous Transfer';
+        
+        el.className = `p-3 bg-surface-container-low border ${borderColor} rounded-lg group ${hoverBorder} transition-all cursor-pointer relative overflow-hidden ${pulseClass} alert-item`;
         el.dataset.accountId = alert.account_id;
 
-        const edgeW = (alert.edge_score * 100).toFixed(0);
-        const graphW = (alert.graph_score * 100).toFixed(0);
-        const tempW = (alert.temporal_score * 100).toFixed(0);
-
         el.innerHTML = `
-            <div class="alert-header">
-                <span class="alert-account">${alert.account_id?.slice(-8) || ''}</span>
-                <span class="alert-severity ${alert.severity}">${alert.severity}</span>
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <h3 class="font-data-mono text-primary text-xs uppercase">${escapeHtml(alert.account_id)}</h3>
+                    <p class="font-arbutus text-[8px] ${textColor} uppercase mt-1">${escapeHtml(alert.severity)}</p>
+                </div>
+                <span class="material-symbols-outlined ${textColor} text-sm">${icon}</span>
             </div>
-            <div class="alert-name">${alert.holder_name || 'Unknown'} · ${alert.branch || ''}</div>
-            <div class="alert-scores">
-                <div class="alert-score-bar edge"><div class="fill" style="width:${edgeW}%"></div></div>
-                <div class="alert-score-bar graph"><div class="fill" style="width:${graphW}%"></div></div>
-                <div class="alert-score-bar temporal"><div class="fill" style="width:${tempW}%"></div></div>
-            </div>
-            <div class="alert-score-labels">
-                <span class="alert-score-label text-cyan">E:${edgeW}%</span>
-                <span class="alert-score-label text-teal">G:${graphW}%</span>
-                <span class="alert-score-label text-violet">T:${tempW}%</span>
-                <span class="alert-score-label" style="color:var(--text-primary);font-weight:600;">
-                    ${(alert.fused_score * 100).toFixed(0)}%
-                </span>
-            </div>
+            <div class="text-[11px] text-on-surface-variant mb-4">Pattern: <span class="text-on-surface font-medium">${escapeHtml(pattern)}</span></div>
+            <button class="w-full py-2 border border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary font-arbutus text-[9px] uppercase rounded transition-all investigate-btn">Investigate</button>
         `;
 
         el.addEventListener('click', () => selectAlert(alert));
@@ -244,11 +280,13 @@ function renderAlerts(alerts) {
 
 function selectAlert(alert) {
     // Deselect previous
-    document.querySelectorAll('.alert-item.selected').forEach(el => el.classList.remove('selected'));
+    document.querySelectorAll('.alert-item').forEach(el => {
+        el.classList.remove('ring-1', 'ring-primary');
+    });
 
     // Select new
     const el = dom.alertBody.querySelector(`[data-account-id="${alert.account_id}"]`);
-    if (el) el.classList.add('selected');
+    if (el) el.classList.add('ring-1', 'ring-primary');
 
     state.selectedAlert = alert;
 
@@ -258,8 +296,10 @@ function selectAlert(alert) {
 }
 
 function renderGraph(data, centerId) {
+    if (!dom.graphCanvas) return;
+
     if (!data.nodes || !data.nodes.length) {
-        dom.graphPlaceholder.style.display = 'flex';
+        if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'flex';
         return;
     }
 
@@ -268,43 +308,43 @@ function renderGraph(data, centerId) {
         const score = n.graph_score || 0;
 
         if (n.is_center) {
-            color = '#ef4444';
-            size = 35;
-            borderColor = '#fbbf24';
+            color = '#ef4444'; // error
+            size = 30;
+            borderColor = '#ffb4ab';
         } else if (n.in_cycle) {
             color = '#f97316';
-            size = 25;
+            size = 22;
             borderColor = '#f97316';
         } else if (n.in_chain) {
             color = '#eab308';
-            size = 22;
+            size = 20;
             borderColor = '#eab308';
         } else if (n.is_hub) {
             color = '#8b5cf6';
-            size = 28;
+            size = 25;
             borderColor = '#8b5cf6';
         } else if (n.is_dormant) {
             color = '#64748b';
-            size = 18;
+            size = 15;
             borderColor = '#64748b';
         } else {
-            color = score > 0.3 ? '#0ea5e9' : '#1e3a5f';
-            size = 18;
-            borderColor = score > 0.3 ? '#0ea5e9' : '#334155';
+            color = score > 0.3 ? '#88c0d0' : '#2b4c68'; // primary-container or secondary-container
+            size = 15;
+            borderColor = score > 0.3 ? '#88c0d0' : '#40484b';
         }
 
         return {
             id: n.id,
             label: n.label,
-            title: `${n.id}\n${n.name}\nType: ${n.type}\nBranch: ${n.branch}\nGraph Score: ${(score * 100).toFixed(0)}%`,
+            title: escapeHtml(`${n.id}\n${n.name}\nType: ${n.type}\nBranch: ${n.branch}\nGraph Score: ${(score * 100).toFixed(0)}%`),
             size: size,
             color: {
                 background: color,
                 border: borderColor,
-                highlight: { background: '#06d6a0', border: '#06d6a0' },
-                hover: { background: color, border: '#06d6a0' },
+                highlight: { background: '#a3dcec', border: '#a3dcec' },
+                hover: { background: color, border: '#a3dcec' },
             },
-            font: { color: '#f1f5f9', size: 11, face: 'JetBrains Mono' },
+            font: { color: '#e2e2ec', size: 11, face: 'Geist Mono' },
             borderWidth: n.is_center ? 3 : 1,
             shadow: n.is_center ? { enabled: true, color: 'rgba(239,68,68,0.4)', size: 15 } : false,
         };
@@ -315,34 +355,18 @@ function renderGraph(data, centerId) {
         from: e.from,
         to: e.to,
         label: e.amount ? `₹${formatNumber(Math.round(e.amount))}` : '',
-        title: `TX: ${e.tx_id}\nAmount: ₹${formatNumber(Math.round(e.amount))}\nTime: ${formatTime(e.timestamp)}`,
+        title: escapeHtml(`TX: ${e.tx_id}\nAmount: ₹${formatNumber(Math.round(e.amount))}\nTime: ${formatTime(e.timestamp)}`),
         color: {
-            color: e.is_fraud ? '#ef4444' : '#334155',
-            highlight: '#06d6a0',
-            hover: '#0ea5e9',
+            color: e.is_fraud ? '#ef4444' : '#8a9295', // error or outline
+            highlight: '#a3dcec', // primary
+            hover: '#a3dcec',
         },
         width: e.is_fraud ? 2.5 : 1,
         arrows: { to: { enabled: true, scaleFactor: 0.6 } },
-        font: { color: '#64748b', size: 9, face: 'JetBrains Mono', strokeWidth: 0 },
+        font: { color: '#c0c8cb', size: 9, face: 'Geist Mono', strokeWidth: 0, background: 'rgba(17,19,26,0.8)' },
         dashes: e.is_fraud ? false : [5, 5],
         smooth: { type: 'curvedCW', roundness: 0.2 },
     }));
-
-    // ── Pre-position nodes in a circle ──────────────
-    const otherNodes = nodes.filter(n => !n.is_center);
-    const positionedNodes = nodes.map(n => {
-        if (n.is_center) return { ...n, x: 0, y: 0 };
-        const idx = otherNodes.indexOf(n);
-        const angle = (idx / Math.max(otherNodes.length, 1)) * 2 * Math.PI;
-        const r = 200 + idx * 5;
-        return { ...n, x: Math.cos(angle) * r, y: Math.sin(angle) * r };
-    });
-
-    const options = {
-        layout: { improvedLayout: false },
-        physics: { enabled: false },          // instant render, no buffering
-        interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true }
-    };
 
     // ── Filter edges to only include nodes that exist ──
     const nodeIds = new Set(nodes.map(n => n.id));
@@ -350,182 +374,161 @@ function renderGraph(data, centerId) {
 
     if (state.network) state.network.destroy();
 
+    const options = {
+        layout: { improvedLayout: true },
+        physics: { 
+            enabled: true,
+            barnesHut: {
+                gravitationalConstant: -2000,
+                centralGravity: 0.3,
+                springLength: 95,
+                springConstant: 0.04,
+                damping: 0.09,
+                avoidOverlap: 0
+            }
+        },
+        interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true }
+    };
+
     state.network = new vis.Network(
         dom.graphCanvas,
-        { nodes: new vis.DataSet(positionedNodes), edges: new vis.DataSet(safeEdges) },
+        { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(safeEdges) },
         options
     );
+} 
 
-    setTimeout(() => { if (state.network) state.network.fit(); }, 150);
-    setTimeout(() => { if (state.network) { state.network.setSize('100%', '100%'); state.network.fit(); } }, 500);
+function renderInvestigation(inv, accountId) {
+    if (!dom.invContent) return;
 
-} // ← closes renderGraph
-
-function renderInvestigation(inv) {
     const evidence = inv.evidence || {};
     const scores = evidence.scores || {};
     const temporal = evidence.temporal_profile || {};
     const patterns = evidence.detected_patterns || [];
-    const actions = inv.recommended_actions || [];
+    
+    // Check if we need to update the title
+    const panelTitle = dom.invPanel.querySelector('h2');
+    if (panelTitle) {
+        panelTitle.innerHTML = `Investigation Summary: <span class="font-data-mono">${escapeHtml(accountId)}</span>`;
+    }
 
-    const fusedPct = ((scores.fused_score || 0) * 100).toFixed(1);
-    const circumference = 2 * Math.PI * 34;
-    const offset = circumference * (1 - (scores.fused_score || 0));
+    const edgeW = ((scores.edge_score || 0) * 100).toFixed(1);
+    const graphW = ((scores.graph_score || 0) * 100).toFixed(1);
+    const tempW = ((scores.temporal_score || 0) * 100).toFixed(1);
 
     dom.invContent.innerHTML = `
-        <!-- Score & Patterns -->
-        <div class="inv-section">
-            <div class="inv-section-title">⚠️ Risk Assessment</div>
-            <svg class="score-ring" viewBox="0 0 80 80">
-                <circle class="bg" cx="40" cy="40" r="34"/>
-                <circle class="fg" cx="40" cy="40" r="34"
-                    stroke-dasharray="${circumference}"
-                    stroke-dashoffset="${offset}"
-                    style="stroke:${getScoreColor(scores.fused_score || 0)}"/>
-                <text class="score-ring-value" x="40" y="40">${fusedPct}%</text>
-            </svg>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Edge Score</span>
-                <span class="inv-metric-value text-cyan">${((scores.edge_score || 0) * 100).toFixed(1)}%</span>
+        <div class="col-span-5 flex flex-col justify-center">
+            <h3 class="font-arbutus text-[9px] text-on-surface-variant uppercase mb-4">Risk Fusion Breakdown</h3>
+            <div class="space-y-4">
+                <div class="space-y-1.5">
+                    <div class="flex justify-between font-data-mono text-[11px] text-on-surface"><span>EDGE_RISK</span><span>${edgeW}%</span></div>
+                    <div class="h-1 bg-surface-variant rounded-full overflow-hidden">
+                        <div class="h-full bg-error progress-bar-fill" style="width: 0%" data-width="${edgeW}%"></div>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between font-data-mono text-[11px] text-on-surface"><span>GRAPH_TOPOLOGY</span><span>${graphW}%</span></div>
+                    <div class="h-1 bg-surface-variant rounded-full overflow-hidden">
+                        <div class="h-full bg-error progress-bar-fill" style="width: 0%" data-width="${graphW}%"></div>
+                    </div>
+                </div>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between font-data-mono text-[11px] text-on-surface"><span>TEMPORAL_ANOMALIES</span><span>${tempW}%</span></div>
+                    <div class="h-1 bg-surface-variant rounded-full overflow-hidden">
+                        <div class="h-full bg-tertiary progress-bar-fill" style="width: 0%" data-width="${tempW}%"></div>
+                    </div>
+                </div>
             </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Graph Score</span>
-                <span class="inv-metric-value text-teal">${((scores.graph_score || 0) * 100).toFixed(1)}%</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Temporal Score</span>
-                <span class="inv-metric-value text-violet">${((scores.temporal_score || 0) * 100).toFixed(1)}%</span>
-            </div>
-            <div style="margin-top:12px;">
-                <div class="inv-section-title" style="margin-bottom:6px">🔍 Detected Patterns</div>
-                <ul class="inv-patterns">
-                    ${patterns.map(p => `
-                        <li class="inv-pattern-item">
-                            <span class="inv-pattern-dot"></span>${p}
-                        </li>
-                    `).join('') || '<li class="inv-pattern-item" style="color:var(--text-muted)">No specific patterns</li>'}
-                </ul>
-            </div>
-            ${actions.length ? `
-            <div style="margin-top:12px;">
-                <div class="inv-section-title" style="margin-bottom:6px">📋 Recommended Actions</div>
-                <ul class="inv-actions">
-                    ${actions.map(a => `
-                        <li class="inv-action-item">
-                            <span class="inv-action-icon">▸</span>${a}
-                        </li>
-                    `).join('')}
-                </ul>
-            </div>` : ''}
-        </div>
-
-        <!-- Temporal Profile -->
-        <div class="inv-section">
-            <div class="inv-section-title">⏱️ Temporal Behavior</div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Avg Propagation</span>
-                <span class="inv-metric-value">${temporal.avg_propagation_speed_hrs ?? 'N/A'} hrs</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Min Retention</span>
-                <span class="inv-metric-value">${temporal.min_retention_hrs ?? 'N/A'} hrs</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Peak Density</span>
-                <span class="inv-metric-value">${temporal.peak_hop_density_per_hr ?? 'N/A'}/hr</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Burst Events</span>
-                <span class="inv-metric-value">${temporal.burst_redistribution_count ?? 0}</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Unique Beneficiaries</span>
-                <span class="inv-metric-value">${temporal.unique_beneficiaries ?? 0}</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Total Outflows</span>
-                <span class="inv-metric-value">${temporal.total_outflows ?? 0}</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Total Inflows</span>
-                <span class="inv-metric-value">${temporal.total_inflows ?? 0}</span>
-            </div>
-            <div class="inv-metric">
-                <span class="inv-metric-label">Dormant Activation</span>
-                <span class="inv-metric-value">${temporal.dormant_activation ? '⚠️ YES' : 'No'}</span>
+            
+            <div class="mt-6 flex flex-col gap-2">
+                <div class="font-arbutus text-[9px] text-on-surface-variant uppercase mb-1">Detected Patterns</div>
+                <div class="flex flex-wrap gap-2">
+                    ${patterns.map(p => `<span class="px-2 py-1 bg-surface-variant/50 text-on-surface text-[10px] font-data-mono rounded border border-outline-variant/30">${escapeHtml(p)}</span>`).join('')}
+                    ${patterns.length === 0 ? '<span class="text-on-surface-variant text-[10px]">No specific patterns</span>' : ''}
+                </div>
             </div>
         </div>
-
-        <!-- STR Narrative -->
-        <div class="inv-section">
-            <div class="inv-section-title">📄 STR Narrative</div>
-            <div class="str-text">${escapeHtml(inv.str_narrative || 'No narrative generated.')}</div>
+        <div class="col-span-1 border-r border-outline-variant/10"></div>
+        <div class="col-span-6 flex flex-col h-full overflow-hidden">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-arbutus text-[9px] text-on-surface-variant uppercase">Generated STR Narrative</h3>
+                <button class="text-[9px] text-primary hover:underline font-arbutus uppercase">Export PDF</button>
+            </div>
+            <div class="flex-1 glass-panel p-3 rounded-lg border border-primary/10 overflow-y-auto">
+                <p class="font-body-md text-on-surface-variant leading-relaxed text-[12px] whitespace-pre-wrap">
+<span class="text-primary font-bold font-data-mono">[AUTO-GENERATED_REPORT]</span> - ${escapeHtml(inv.str_narrative || 'No narrative generated.')}
+                </p>
+            </div>
         </div>
     `;
+    
+    dom.invContent.className = "flex-1 p-gutter grid grid-cols-12 gap-stack-lg overflow-y-auto animate-on-reveal";
 }
 
-function closeInvestigation() {
-    dom.invPanel.classList.remove('open');
-    state.selectedAlert = null;
-    document.querySelectorAll('.alert-item.selected').forEach(el => el.classList.remove('selected'));
-}
-
-function resizeGraph() {
-    if (state.network) {
-        state.network.setSize('100%', '100%');
-        state.network.redraw();
-        state.network.fit();
-    }
+function triggerChartAnimations() {
+    document.querySelectorAll('.progress-bar-fill').forEach(bar => {
+        setTimeout(() => {
+            bar.style.width = bar.getAttribute('data-width');
+        }, 50);
+    });
 }
 
 function updateStats(data) {
-    if (data.processed) {
-        dom.statProcessed.textContent = formatNumber(data.processed);
+    if (data.processed && dom.statProcessed) {
+        animateCounter(dom.statProcessed, data.processed);
     }
-    if (data.alerts !== undefined) {
-        dom.statAlerts.textContent = data.alerts;
+    if (data.alerts !== undefined && dom.statAlerts) {
+        animateCounter(dom.statAlerts, data.alerts);
     }
 }
 
 // ── Utilities ────────────────────────────────────────────────────────
-function getRiskClass(score) {
-    if (score >= 0.85) return 'critical';
-    if (score >= 0.70) return 'high';
-    if (score >= 0.50) return 'medium';
-    return 'low';
-}
 
-function getScoreColor(score) {
-    if (score >= 0.85) return '#ef4444';
-    if (score >= 0.70) return '#f97316';
-    if (score >= 0.50) return '#eab308';
-    return '#22c55e';
+function animateCounter(el, target) {
+    if (!el) return;
+    const duration = 1000;
+    const current = parseFloat(el.textContent.replace(/,/g, '') || 0);
+    const start = performance.now();
+
+    const animate = (time) => {
+        const elapsed = time - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeOutQuad = progress * (2 - progress);
+        const val = current + (target - current) * easeOutQuad;
+
+        el.textContent = formatNumber(Math.round(val));
+
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            el.textContent = formatNumber(target);
+        }
+    };
+    requestAnimationFrame(animate);
 }
 
 function formatCurrency(amount) {
-    if (!amount) return '₹0';
-    if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-    if (amount >= 1000) return `₹${(amount / 1000).toFixed(1)}K`;
-    return `₹${Math.round(amount)}`;
+    if (!amount) return '$0';
+    return `$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 }
 
 function formatNumber(n) {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
     if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return String(n);
+    return Number(n).toLocaleString();
 }
 
 function formatTime(ts) {
     if (!ts) return '';
     try {
         const d = new Date(ts);
-        return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleTimeString('en-GB', { hour12: false });
     } catch { return ''; }
 }
 
 function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
 }
 
@@ -535,4 +538,3 @@ function sleep(ms) {
 
 // ── Start ────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
-

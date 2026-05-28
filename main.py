@@ -9,13 +9,22 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from collections import defaultdict
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 import pandas as pd
 import numpy as np
 
 import config
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/") and request.url.path != "/api/status":
+            api_key = request.headers.get("X-API-Key")
+            if api_key != config.API_KEY:
+                return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "Unauthorized API Key"})
+        return await call_next(request)
 from data.generator import BankingEcosystemGenerator
 from data.fraud_injector import FraudCampaignInjector
 from engine.features import FeatureExtractor
@@ -27,6 +36,7 @@ from engine.investigation import InvestigationEngine
 
 # ── Initialize app ───────────────────────────────────────────────────────
 app = FastAPI(title="GraphGuard v2", description="Fraud Intelligence Platform")
+app.add_middleware(APIKeyMiddleware)
 
 # Global state
 state = {
@@ -49,9 +59,21 @@ class ConnectionManager:
     def __init__(self):
         self.active: List[WebSocket] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> bool:
+        origin = ws.headers.get("origin")
+        if origin and origin not in config.ALLOWED_ORIGINS:
+            await ws.close(code=1008, reason="Origin not allowed")
+            return False
+
+        client_ip = ws.client.host if ws.client else "unknown"
+        ip_connections = sum(1 for active_ws in self.active if active_ws.client and active_ws.client.host == client_ip)
+        if ip_connections >= config.MAX_WS_CONNECTIONS_PER_IP:
+            await ws.close(code=1008, reason="Too many connections")
+            return False
+
         await ws.accept()
         self.active.append(ws)
+        return True
 
     def disconnect(self, ws: WebSocket):
         if ws in self.active:
@@ -262,7 +284,9 @@ async def recent_transactions(limit: int = 50):
 # ── WebSocket: live stream ──────────────────────────────────────────────
 @app.websocket("/ws/live")
 async def websocket_live(ws: WebSocket):
-    await manager.connect(ws)
+    connected = await manager.connect(ws)
+    if not connected:
+        return
     try:
         txns = state["transactions_df"]
         features = state["features_df"]
