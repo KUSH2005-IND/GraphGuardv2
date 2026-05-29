@@ -236,6 +236,15 @@ async def account_graph(account_id: str):
     return subgraph
 
 
+@app.get("/api/graph/{account_id}/investigation")
+async def account_graph_investigation(account_id: str):
+    """Focused investigation-mode subgraph with suspicious path highlighting."""
+    if not state["ready"]:
+        raise HTTPException(404, "Not ready")
+    graph = state["graph_engine"]
+    return graph.get_suspicious_path_subgraph(account_id)
+
+
 @app.get("/api/investigation/{account_id}")
 async def investigation(account_id: str):
     if not state["ready"]:

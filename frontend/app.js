@@ -13,6 +13,11 @@ const state = {
     txCount: 0,
     reconnectAttempts: 0,
     maxReconnect: 10,
+    graphMode: 'overview',         // 'overview' or 'investigation'
+    currentAccountId: null,        // currently selected account
+    cachedOverviewGraph: null,     // cached overview graph data
+    cachedInvestigationGraph: null, // cached investigation graph data
+    legendVisible: false,
 };
 
 // ── DOM References ───────────────────────────────────────────────────
@@ -31,6 +36,13 @@ const dom = {
     statProcessed: document.getElementById('statProcessed'),
     statAlerts: document.getElementById('statAlerts'),
     statAccounts: document.getElementById('statAccounts'),
+    graphModeToggle: document.getElementById('graphModeToggle'),
+    btnOverview: document.getElementById('btnOverview'),
+    btnInvestigation: document.getElementById('btnInvestigation'),
+    graphLegend: document.getElementById('graphLegend'),
+    legendPathEdge: document.getElementById('legendPathEdge'),
+    fraudPatternPanel: document.getElementById('fraudPatternPanel'),
+    fraudPatternList: document.getElementById('fraudPatternList'),
 };
 
 // ── Initialize ───────────────────────────────────────────────────────
@@ -132,13 +144,30 @@ async function loadGraph(accountId) {
         if (dom.graphInfo) dom.graphInfo.textContent = `Loading ${escapeHtml(accountId)}...`;
         const res = await fetch(`/api/graph/${accountId}`, { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const graph = await res.json();
+        state.cachedOverviewGraph = graph;
         if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'none';
-        renderGraph(graph, accountId);
-        if (dom.graphInfo) dom.graphInfo.textContent = `${escapeHtml(accountId)} — ${graph.nodes?.length || 0} nodes, ${graph.edges?.length || 0} edges`;
+        if (state.graphMode === 'overview') {
+            renderGraph(graph, accountId);
+            if (dom.graphInfo) dom.graphInfo.textContent = `${escapeHtml(accountId)} — ${graph.nodes?.length || 0} nodes, ${graph.edges?.length || 0} edges`;
+        }
     } catch (e) {
         console.error('[Graph]', e);
         if (dom.graphInfo) dom.graphInfo.textContent = 'Error loading graph';
         if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'flex';
+    }
+}
+
+async function loadInvestigationGraph(accountId) {
+    try {
+        const res = await fetch(`/api/graph/${accountId}/investigation`, { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
+        const graph = await res.json();
+        state.cachedInvestigationGraph = graph;
+        if (state.graphMode === 'investigation') {
+            renderInvestigationGraph(graph, accountId);
+            renderFraudPatterns(graph.fraud_classifications || []);
+        }
+    } catch (e) {
+        console.error('[InvestigationGraph]', e);
     }
 }
 
@@ -289,9 +318,14 @@ function selectAlert(alert) {
     if (el) el.classList.add('ring-1', 'ring-primary');
 
     state.selectedAlert = alert;
+    state.currentAccountId = alert.account_id;
 
-    // Load graph and investigation
+    // Show mode toggle
+    if (dom.graphModeToggle) dom.graphModeToggle.style.display = 'flex';
+
+    // Load both graph modes in parallel
     loadGraph(alert.account_id);
+    loadInvestigationGraph(alert.account_id);
     loadInvestigation(alert.account_id);
 }
 
@@ -390,12 +424,282 @@ function renderGraph(data, centerId) {
         interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true }
     };
 
+    // Hide investigation-mode overlays in overview
+    if (dom.fraudPatternPanel) dom.fraudPatternPanel.style.display = 'none';
+    if (dom.legendPathEdge) dom.legendPathEdge.style.display = 'none';
+    if (dom.graphCanvas) dom.graphCanvas.classList.remove('investigation-active');
+
     state.network = new vis.Network(
         dom.graphCanvas,
         { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(safeEdges) },
         options
     );
-} 
+}
+
+// ── Investigation Mode Graph ─────────────────────────────────────────
+function renderInvestigationGraph(data, centerId) {
+    if (!dom.graphCanvas) return;
+
+    if (!data.nodes || !data.nodes.length) {
+        if (dom.graphPlaceholder) dom.graphPlaceholder.style.display = 'flex';
+        return;
+    }
+
+    const patternType = data.pattern_type || 'unknown';
+    const patternLabels = {
+        'circular_flow': '🔄 Circular Flow',
+        'layering': '📊 Layering Chain',
+        'mule_network': '🕸️ Mule Network',
+        'dormant_activation': '💤 Dormant Activation',
+        'temporal_burst': '⚡ Temporal Burst',
+        'suspicious_activity': '⚠️ Suspicious Activity',
+        'unknown': '🔍 Under Investigation',
+    };
+
+    if (dom.graphInfo) {
+        const nodeCount = data.nodes.length;
+        const edgeCount = data.edges.length;
+        const label = patternLabels[patternType] || patternLabels['unknown'];
+        dom.graphInfo.textContent = `${escapeHtml(centerId)} — ${label} — ${nodeCount} nodes, ${edgeCount} edges`;
+    }
+
+    const nodes = data.nodes.map(n => {
+        let color, size, borderColor, borderWidth;
+        const score = n.graph_score || 0;
+        const onPath = n.on_suspicious_path;
+
+        if (n.is_center) {
+            color = '#ef4444';
+            size = onPath ? 35 : 30;
+            borderColor = '#ffb4ab';
+            borderWidth = 4;
+        } else if (onPath && n.in_cycle) {
+            color = '#f97316';
+            size = 28;
+            borderColor = '#fb923c';
+            borderWidth = 3;
+        } else if (onPath && n.in_chain) {
+            color = '#eab308';
+            size = 26;
+            borderColor = '#facc15';
+            borderWidth = 3;
+        } else if (onPath && n.is_hub) {
+            color = '#8b5cf6';
+            size = 30;
+            borderColor = '#a78bfa';
+            borderWidth = 3;
+        } else if (onPath) {
+            color = '#f97316';
+            size = 24;
+            borderColor = '#fb923c';
+            borderWidth = 2;
+        } else if (n.is_dormant) {
+            color = '#334155';
+            size = 12;
+            borderColor = '#475569';
+            borderWidth = 1;
+        } else {
+            // Context node — very dim
+            color = '#1e293b';
+            size = 10;
+            borderColor = '#334155';
+            borderWidth = 1;
+        }
+
+        const nodeLabel = onPath ? n.label : '';
+
+        return {
+            id: n.id,
+            label: nodeLabel,
+            title: escapeHtml(`${n.id}\n${n.name}\nType: ${n.type}\nBranch: ${n.branch}\nGraph Score: ${(score * 100).toFixed(0)}%${onPath ? '\n★ ON SUSPICIOUS PATH' : ''}`),
+            size: size,
+            color: {
+                background: color,
+                border: borderColor,
+                highlight: { background: '#a3dcec', border: '#a3dcec' },
+                hover: { background: color, border: '#a3dcec' },
+            },
+            font: {
+                color: onPath ? '#ffffff' : '#475569',
+                size: onPath ? 13 : 9,
+                face: 'Geist Mono',
+                bold: onPath ? { color: '#ffffff' } : undefined,
+            },
+            borderWidth: borderWidth,
+            shadow: onPath ? { enabled: true, color: `rgba(${n.is_center ? '239,68,68' : '249,115,22'},0.5)`, size: 20 } : false,
+            opacity: onPath ? 1.0 : 0.25,
+        };
+    });
+
+    const edges = data.edges.map((e, i) => {
+        const onPath = e.on_suspicious_path;
+        return {
+            id: `e${i}`,
+            from: e.from,
+            to: e.to,
+            label: onPath && e.amount ? `₹${formatNumber(Math.round(e.amount))}` : '',
+            title: escapeHtml(`TX: ${e.tx_id}\nAmount: ₹${formatNumber(Math.round(e.amount))}\nTime: ${formatTime(e.timestamp)}${onPath ? '\n★ SUSPICIOUS PATH' : ''}`),
+            color: {
+                color: onPath ? '#ef4444' : '#1e293b',
+                highlight: '#a3dcec',
+                hover: '#a3dcec',
+            },
+            width: onPath ? 4 : 0.5,
+            arrows: { to: { enabled: true, scaleFactor: onPath ? 0.8 : 0.4 } },
+            font: {
+                color: onPath ? '#fca5a5' : '#334155',
+                size: onPath ? 11 : 8,
+                face: 'Geist Mono',
+                strokeWidth: 0,
+                background: onPath ? 'rgba(17,19,26,0.9)' : 'rgba(17,19,26,0.5)',
+            },
+            dashes: onPath ? false : [3, 3],
+            smooth: { type: 'curvedCW', roundness: 0.15 },
+            opacity: onPath ? 1.0 : 0.15,
+        };
+    });
+
+    // Filter edges to only include nodes that exist
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const safeEdges = edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+
+    if (state.network) state.network.destroy();
+
+    // Use hierarchical layout for chains/layering, physics for cycles/hubs
+    const useHierarchical = (patternType === 'layering' || patternType === 'dormant_activation');
+
+    const options = {
+        layout: useHierarchical ? {
+            hierarchical: {
+                direction: 'LR',
+                sortMethod: 'directed',
+                levelSeparation: 150,
+                nodeSpacing: 80,
+                treeSpacing: 100,
+            }
+        } : {
+            improvedLayout: true,
+        },
+        physics: useHierarchical ? {
+            enabled: false,
+        } : {
+            enabled: true,
+            barnesHut: {
+                gravitationalConstant: -3000,
+                centralGravity: 0.5,
+                springLength: 120,
+                springConstant: 0.06,
+                damping: 0.12,
+                avoidOverlap: 0.3,
+            }
+        },
+        interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    };
+
+    // Show investigation overlays
+    if (dom.graphCanvas) dom.graphCanvas.classList.add('investigation-active');
+    if (dom.legendPathEdge) dom.legendPathEdge.style.display = 'flex';
+
+    state.network = new vis.Network(
+        dom.graphCanvas,
+        { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(safeEdges) },
+        options
+    );
+
+    // Auto-focus on center node after stabilization
+    state.network.once('stabilized', () => {
+        state.network.focus(centerId, { scale: 1.2, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+    });
+}
+
+function renderFraudPatterns(classifications) {
+    if (!dom.fraudPatternList) return;
+
+    if (!classifications || classifications.length === 0) {
+        if (dom.fraudPatternPanel) dom.fraudPatternPanel.style.display = 'none';
+        return;
+    }
+
+    dom.fraudPatternList.innerHTML = '';
+    if (dom.fraudPatternPanel) dom.fraudPatternPanel.style.display = 'block';
+
+    classifications.forEach(cls => {
+        const confPct = Math.round(cls.confidence * 100);
+        const confClass = confPct >= 80 ? 'high' : confPct >= 60 ? 'medium' : 'low';
+
+        const badge = document.createElement('div');
+        badge.className = 'pattern-badge';
+        badge.title = cls.evidence || '';
+        badge.innerHTML = `
+            <div class="pattern-name">
+                <span class="check material-symbols-outlined">check_circle</span>
+                ${escapeHtml(cls.name)}
+            </div>
+            <div class="confidence-bar">
+                <div class="confidence-fill ${confClass}" style="width: 0%" data-width="${confPct}%"></div>
+            </div>
+            <div class="confidence-text">Confidence: ${confPct}%</div>
+        `;
+        dom.fraudPatternList.appendChild(badge);
+    });
+
+    // Animate confidence bars
+    setTimeout(() => {
+        document.querySelectorAll('.pattern-badge .confidence-fill').forEach(bar => {
+            bar.style.width = bar.getAttribute('data-width');
+        });
+    }, 100);
+}
+
+// ── Graph Mode Switching ─────────────────────────────────────────────
+function switchGraphMode(mode) {
+    if (mode === state.graphMode) return;
+    state.graphMode = mode;
+
+    // Update toggle buttons
+    if (dom.btnOverview) {
+        dom.btnOverview.classList.toggle('graph-mode-active', mode === 'overview');
+    }
+    if (dom.btnInvestigation) {
+        dom.btnInvestigation.classList.toggle('graph-mode-active', mode === 'investigation');
+    }
+
+    const accountId = state.currentAccountId;
+    if (!accountId) return;
+
+    if (mode === 'overview' && state.cachedOverviewGraph) {
+        renderGraph(state.cachedOverviewGraph, accountId);
+        if (dom.graphInfo) {
+            const g = state.cachedOverviewGraph;
+            dom.graphInfo.textContent = `${escapeHtml(accountId)} — ${g.nodes?.length || 0} nodes, ${g.edges?.length || 0} edges`;
+        }
+        if (dom.fraudPatternPanel) dom.fraudPatternPanel.style.display = 'none';
+    } else if (mode === 'investigation' && state.cachedInvestigationGraph) {
+        renderInvestigationGraph(state.cachedInvestigationGraph, accountId);
+        renderFraudPatterns(state.cachedInvestigationGraph.fraud_classifications || []);
+    } else if (mode === 'investigation') {
+        loadInvestigationGraph(accountId);
+    }
+}
+window.switchGraphMode = switchGraphMode;
+
+function recenterGraph() {
+    if (state.network && state.currentAccountId) {
+        state.network.focus(state.currentAccountId, {
+            scale: 1.0,
+            animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+        });
+    }
+}
+window.recenterGraph = recenterGraph;
+
+function toggleLegend() {
+    state.legendVisible = !state.legendVisible;
+    if (dom.graphLegend) {
+        dom.graphLegend.style.display = state.legendVisible ? 'block' : 'none';
+    }
+}
+window.toggleLegend = toggleLegend;
 
 function renderInvestigation(inv, accountId) {
     if (!dom.invContent) return;

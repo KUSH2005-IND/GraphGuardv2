@@ -397,3 +397,299 @@ class GraphIntelligenceEngine:
                 (b for b in self.detected_patterns["temporal_bursts"] if b["account_id"] == account_id), None
             ),
         }
+
+    def get_suspicious_path_subgraph(self, account_id: str) -> Dict:
+        """
+        Extract a focused investigation subgraph (5-15 nodes) showing only
+        the suspicious fund flow path involving the account.
+        Returns the suspicious path, fraud classifications, and a minimal graph.
+        """
+        if account_id not in self.G:
+            return {"nodes": [], "edges": [], "suspicious_path": [],
+                    "fraud_classifications": [], "pattern_type": "unknown"}
+
+        patterns = self.get_patterns_for_account(account_id)
+        classifications = self.get_fraud_classifications(account_id)
+
+        # ── Determine the primary suspicious path ────────────────────────
+        path_nodes = set()
+        path_edges = set()  # (from, to) pairs
+        pattern_type = "unknown"
+
+        # Priority 1: Circular flow
+        if patterns["cycles"]:
+            cycle = max(patterns["cycles"], key=len)
+            path_nodes.update(cycle)
+            for i in range(len(cycle)):
+                path_edges.add((cycle[i], cycle[(i + 1) % len(cycle)]))
+            pattern_type = "circular_flow"
+
+        # Priority 2: Layering chains
+        elif patterns["layering_chains"]:
+            chain = max(patterns["layering_chains"], key=len)
+            path_nodes.update(chain)
+            for i in range(len(chain) - 1):
+                path_edges.add((chain[i], chain[i + 1]))
+            pattern_type = "layering"
+
+        # Priority 3: Mule hub
+        elif patterns["is_mule_hub"]:
+            path_nodes.add(account_id)
+            # Add spokes (immediate successors/predecessors)
+            for pred in list(self.G.predecessors(account_id))[:5]:
+                path_nodes.add(pred)
+                path_edges.add((pred, account_id))
+            for succ in list(self.G.successors(account_id))[:8]:
+                path_nodes.add(succ)
+                path_edges.add((account_id, succ))
+            pattern_type = "mule_network"
+
+        # Priority 4: Temporal burst / dormant activation
+        elif patterns["temporal_burst"]:
+            path_nodes.add(account_id)
+            node_data = self.G.nodes.get(account_id, {})
+            if node_data.get("is_dormant", False):
+                pattern_type = "dormant_activation"
+            else:
+                pattern_type = "temporal_burst"
+            # Add immediate neighbors with fraud edges
+            for pred in self.G.predecessors(account_id):
+                edges = self.G.get_edge_data(pred, account_id)
+                if edges and any(e.get("is_fraud", False) for e in edges.values()):
+                    path_nodes.add(pred)
+                    path_edges.add((pred, account_id))
+            for succ in self.G.successors(account_id):
+                edges = self.G.get_edge_data(account_id, succ)
+                if edges and any(e.get("is_fraud", False) for e in edges.values()):
+                    path_nodes.add(succ)
+                    path_edges.add((account_id, succ))
+
+        # Fallback: if no specific pattern, get 1-hop fraud neighbors
+        if not path_nodes:
+            path_nodes.add(account_id)
+            for pred in self.G.predecessors(account_id):
+                edges = self.G.get_edge_data(pred, account_id)
+                if edges:
+                    for e in edges.values():
+                        if e.get("is_fraud", False):
+                            path_nodes.add(pred)
+                            path_edges.add((pred, account_id))
+                            break
+            for succ in self.G.successors(account_id):
+                edges = self.G.get_edge_data(account_id, succ)
+                if edges:
+                    for e in edges.values():
+                        if e.get("is_fraud", False):
+                            path_nodes.add(succ)
+                            path_edges.add((account_id, succ))
+                            break
+            pattern_type = "suspicious_activity"
+
+        # ── Add 1-hop context neighbors (non-path) for visual context ────
+        context_nodes = set()
+        for n in list(path_nodes):
+            for neighbor in list(self.G.predecessors(n))[:2]:
+                if neighbor not in path_nodes:
+                    context_nodes.add(neighbor)
+            for neighbor in list(self.G.successors(n))[:2]:
+                if neighbor not in path_nodes:
+                    context_nodes.add(neighbor)
+
+        # Limit total to 15 nodes
+        all_nodes = path_nodes | context_nodes
+        if len(all_nodes) > 15:
+            # Keep all path nodes, trim context
+            max_context = 15 - len(path_nodes)
+            context_nodes = set(list(context_nodes)[:max(max_context, 0)])
+            all_nodes = path_nodes | context_nodes
+
+        # ── Build the subgraph ───────────────────────────────────────────
+        subgraph = self.G.subgraph(all_nodes)
+
+        # Build ordered suspicious path for display
+        suspicious_path_ordered = []
+        if patterns["cycles"]:
+            cycle = max(patterns["cycles"], key=len)
+            suspicious_path_ordered = list(cycle) + [cycle[0]]  # close the loop
+        elif patterns["layering_chains"]:
+            chain = max(patterns["layering_chains"], key=len)
+            suspicious_path_ordered = list(chain)
+
+        nodes = []
+        for n in subgraph.nodes():
+            nd = self.G.nodes[n]
+            gs = self.account_graph_scores.get(n, 0)
+            on_path = n in path_nodes
+            in_cycle = any(n in c for c in self.detected_patterns["cycles"])
+            in_chain = any(n in c for c in self.detected_patterns["layering_chains"])
+            is_hub = any(h["account_id"] == n for h in self.detected_patterns["mule_hubs"])
+
+            nodes.append({
+                "id": n, "label": n[-6:],
+                "name": nd.get("name", "Unknown"),
+                "type": nd.get("type", "unknown"),
+                "branch": nd.get("branch", ""),
+                "is_dormant": nd.get("is_dormant", False),
+                "graph_score": gs, "is_center": n == account_id,
+                "in_cycle": in_cycle, "in_chain": in_chain, "is_hub": is_hub,
+                "on_suspicious_path": on_path,
+            })
+
+        edges = []
+        for u, v, key, data in subgraph.edges(data=True, keys=True):
+            on_path = (u, v) in path_edges
+            edges.append({
+                "from": u, "to": v, "tx_id": data.get("tx_id", key),
+                "amount": data.get("amount", 0),
+                "timestamp": data.get("timestamp", datetime.min).isoformat()
+                             if data.get("timestamp") else "",
+                "is_fraud": data.get("is_fraud", False),
+                "on_suspicious_path": on_path,
+            })
+
+        # Limit edges to 25
+        if len(edges) > 25:
+            # Keep path edges, trim non-path
+            path_e = [e for e in edges if e["on_suspicious_path"]]
+            non_path_e = [e for e in edges if not e["on_suspicious_path"]]
+            edges = path_e + non_path_e[:max(25 - len(path_e), 0)]
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "suspicious_path": suspicious_path_ordered,
+            "fraud_classifications": classifications,
+            "pattern_type": pattern_type,
+        }
+
+    def get_fraud_classifications(self, account_id: str) -> List[Dict]:
+        """
+        Classify fraud patterns for an account with confidence scores.
+        Returns list of {name, confidence, evidence} dicts.
+        """
+        patterns = self.get_patterns_for_account(account_id)
+        classifications = []
+
+        # ── Circular Flow ────────────────────────────────────────────────
+        if patterns["cycles"]:
+            best_cycle = max(patterns["cycles"], key=len)
+            cycle_len = len(best_cycle)
+            # Confidence based on cycle length and temporal consistency
+            base_conf = 0.7
+            if cycle_len >= 4:
+                base_conf += 0.1
+            if cycle_len >= 5:
+                base_conf += 0.05
+            # Check if multiple rounds exist
+            multi_round = self._count_cycle_rounds(best_cycle)
+            if multi_round > 1:
+                base_conf += min(multi_round * 0.05, 0.15)
+            conf = min(round(base_conf, 2), 0.98)
+            path_str = " → ".join(n[-6:] for n in best_cycle) + " → " + best_cycle[0][-6:]
+            classifications.append({
+                "name": "Circular Flow",
+                "confidence": conf,
+                "evidence": f"{cycle_len}-node cycle detected: {path_str}. "
+                           f"{multi_round} round(s) of fund circulation identified.",
+            })
+
+        # ── Layering ─────────────────────────────────────────────────────
+        if patterns["layering_chains"]:
+            best_chain = max(patterns["layering_chains"], key=len)
+            chain_len = len(best_chain)
+            base_conf = 0.6
+            if chain_len >= 5:
+                base_conf += 0.1
+            if chain_len >= 7:
+                base_conf += 0.06
+            # Check if rapid
+            if self._is_rapid_chain(best_chain):
+                base_conf += 0.1
+            conf = min(round(base_conf, 2), 0.98)
+            path_str = " → ".join(n[-6:] for n in best_chain)
+            classifications.append({
+                "name": "Layering",
+                "confidence": conf,
+                "evidence": f"{chain_len}-hop chain: {path_str}. "
+                           f"Funds layered through multiple intermediaries.",
+            })
+
+        # ── Mule Network ─────────────────────────────────────────────────
+        if patterns["is_mule_hub"]:
+            hub_info = next(
+                (h for h in self.detected_patterns["mule_hubs"]
+                 if h["account_id"] == account_id), None
+            )
+            if hub_info:
+                out_deg = hub_info["out_degree"]
+                fan_ratio = hub_info["fan_out_ratio"]
+                base_conf = 0.65
+                if out_deg >= 15:
+                    base_conf += 0.15
+                elif out_deg >= 10:
+                    base_conf += 0.1
+                if fan_ratio > 3:
+                    base_conf += 0.08
+                conf = min(round(base_conf, 2), 0.98)
+                classifications.append({
+                    "name": "Mule Network",
+                    "confidence": conf,
+                    "evidence": f"Hub-and-spoke pattern: {out_deg} outgoing transfers, "
+                               f"fan-out ratio {fan_ratio:.1f}x. "
+                               f"Consistent with mule account distribution.",
+                })
+
+        # ── Dormant Activation ───────────────────────────────────────────
+        node_data = self.G.nodes.get(account_id, {})
+        if node_data.get("is_dormant", False):
+            in_edges = list(self.G.in_edges(account_id, data=True))
+            out_edges = list(self.G.out_edges(account_id, data=True))
+            if in_edges or out_edges:
+                base_conf = 0.75
+                total_inflow = sum(d.get("amount", 0) for _, _, d in in_edges)
+                total_outflow = sum(d.get("amount", 0) for _, _, d in out_edges)
+                if total_inflow > 500000:
+                    base_conf += 0.1
+                if len(out_edges) > 5:
+                    base_conf += 0.08
+                conf = min(round(base_conf, 2), 0.98)
+                classifications.append({
+                    "name": "Dormant Activation",
+                    "confidence": conf,
+                    "evidence": f"Previously dormant account activated with "
+                               f"₹{total_inflow:,.0f} inflow and {len(out_edges)} "
+                               f"outgoing transfers totaling ₹{total_outflow:,.0f}.",
+                })
+
+        # ── Temporal Burst ───────────────────────────────────────────────
+        if patterns["temporal_burst"] and not node_data.get("is_dormant", False):
+            burst = patterns["temporal_burst"]
+            base_conf = 0.6
+            if burst["txn_count"] >= 8:
+                base_conf += 0.15
+            elif burst["txn_count"] >= 5:
+                base_conf += 0.1
+            if burst["unique_targets"] >= 5:
+                base_conf += 0.08
+            conf = min(round(base_conf, 2), 0.98)
+            classifications.append({
+                "name": "Rapid Redistribution",
+                "confidence": conf,
+                "evidence": f"{burst['txn_count']} transfers to "
+                           f"{burst['unique_targets']} unique recipients "
+                           f"totaling ₹{burst['total_amount']:,.0f} in a single window.",
+            })
+
+        # Sort by confidence descending
+        classifications.sort(key=lambda x: x["confidence"], reverse=True)
+        return classifications
+
+    def _count_cycle_rounds(self, cycle: List[str]) -> int:
+        """Count how many complete rounds a cycle has been traversed."""
+        rounds = 0
+        for i in range(len(cycle)):
+            src, dst = cycle[i], cycle[(i + 1) % len(cycle)]
+            edges = self.G.get_edge_data(src, dst)
+            if edges:
+                rounds = max(rounds, len(edges))
+        return rounds
