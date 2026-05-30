@@ -381,6 +381,7 @@ function renderGraph(data, centerId) {
             font: { color: '#e2e2ec', size: 11, face: 'Geist Mono' },
             borderWidth: n.is_center ? 3 : 1,
             shadow: n.is_center ? { enabled: true, color: 'rgba(239,68,68,0.4)', size: 15 } : false,
+            is_center: n.is_center,
         };
     });
 
