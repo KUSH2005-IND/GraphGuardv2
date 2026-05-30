@@ -166,8 +166,10 @@ async function loadInvestigationGraph(accountId) {
             renderInvestigationGraph(graph, accountId);
             renderFraudPatterns(graph.fraud_classifications || []);
         }
+        return graph;
     } catch (e) {
         console.error('[InvestigationGraph]', e);
+        return null;
     }
 }
 
@@ -228,7 +230,7 @@ function handleMessage(msg) {
 
 function addTransactionToFeed(tx) {
     state.txCount++;
-    const score = tx.edge_score || 0;
+    const score = tx.edge_score || tx.risk_pct/100 || 0;
     const isHighRisk = score > 0.7;
 
     const row = document.createElement('tr');
@@ -285,7 +287,7 @@ function renderAlerts(alerts) {
         const textColor = isCritical ? 'text-error' : 'text-tertiary';
         const icon = isCritical ? 'warning' : 'info';
         const pulseClass = isCritical ? 'critical-pulse' : '';
-        const pattern = alert.primary_pattern || 'Anomalous Transfer';
+        const pattern = alert.pattern || alert.primary_pattern || 'Anomalous Transfer';
         
         el.className = `p-3 bg-surface-container-low border ${borderColor} rounded-lg group ${hoverBorder} transition-all cursor-pointer relative overflow-hidden ${pulseClass} alert-item`;
         el.dataset.accountId = alert.account_id;
@@ -307,7 +309,7 @@ function renderAlerts(alerts) {
     });
 }
 
-function selectAlert(alert) {
+async function selectAlert(alert) {
     // Deselect previous
     document.querySelectorAll('.alert-item').forEach(el => {
         el.classList.remove('ring-1', 'ring-primary');
@@ -325,8 +327,72 @@ function selectAlert(alert) {
 
     // Load both graph modes in parallel
     loadGraph(alert.account_id);
-    loadInvestigationGraph(alert.account_id);
     loadInvestigation(alert.account_id);
+    const graphData = await loadInvestigationGraph(alert.account_id);
+
+    // Animate suspicious path after graph renders
+    setTimeout(() => {
+        if (graphData?.suspicious_path?.length > 1) {
+            animateFraudPath(graphData.suspicious_path);
+        }
+    }, 600);  // wait for graph to settle
+}
+
+function animateFraudPath(pathNodes) {
+    if (!state.network) return;
+    const pathSet = new Set(pathNodes);
+    const allNodeIds = state.network.body.data.nodes.getIds();
+
+    // Step 1: Dim everything
+    state.network.body.data.nodes.update(
+        allNodeIds.map(id => ({
+            id,
+            opacity: pathSet.has(id) ? 1.0 : 0.2
+        }))
+    );
+
+    // Step 2: Light up path nodes one by one
+    pathNodes.forEach((nodeId, i) => {
+        setTimeout(() => {
+            if (allNodeIds.includes(nodeId)) {
+                state.network.body.data.nodes.update([{
+                    id: nodeId,
+                    color: {
+                        background: i === 0 ? '#ef4444' : '#f97316',
+                        border: '#fbbf24'
+                    },
+                    borderWidth: 4,
+                    size: 32
+                }]);
+            }
+
+            // Highlight the edge to next node
+            if (i < pathNodes.length - 1) {
+                const allEdges = state.network.body.data.edges.get();
+                const pathEdge = allEdges.find(
+                    e => e.from === nodeId && e.to === pathNodes[i + 1]
+                );
+                if (pathEdge) {
+                    state.network.body.data.edges.update([{
+                        id: pathEdge.id,
+                        color: { color: '#ef4444' },
+                        width: 5
+                    }]);
+                }
+            }
+        }, i * 500);
+    });
+
+    // Step 3: Fit view to path nodes after animation
+    setTimeout(() => {
+        const existingPathNodes = pathNodes.filter(n => allNodeIds.includes(n));
+        if (existingPathNodes.length > 0) {
+            state.network.fit({
+                nodes: existingPathNodes,
+                animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+            });
+        }
+    }, pathNodes.length * 500 + 200);
 }
 
 function renderGraph(data, centerId) {
@@ -812,8 +878,8 @@ function animateCounter(el, target) {
 }
 
 function formatCurrency(amount) {
-    if (!amount) return '$0';
-    return `$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    if (!amount) return '₹0';
+    return `₹${amount.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 }
 
 function formatNumber(n) {

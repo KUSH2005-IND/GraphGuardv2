@@ -272,7 +272,7 @@ class GraphIntelligenceEngine:
 
         # Mule hub score
         for hub in self.detected_patterns["mule_hubs"]:
-            scores[hub["account_id"]] += 0.35 * min(hub["fan_out_ratio"] / 5, 1.0)
+            scores[hub["account_id"]] += 0.6 * min(hub["fan_out_ratio"] / 5, 1.0)
 
         # Temporal burst score
         for burst in self.detected_patterns["temporal_bursts"]:

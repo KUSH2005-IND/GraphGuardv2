@@ -117,10 +117,10 @@ FUSION_WEIGHTS = {
 }
 
 ALERT_THRESHOLDS = {
-    "CRITICAL": 0.85,
-    "HIGH": 0.70,
-    "MEDIUM": 0.50,
-    "LOW": 0.30,
+    "CRITICAL": 0.50,
+    "HIGH":     0.35,
+    "MEDIUM":   0.20,
+    "LOW":      0.10,
 }
 
 MAX_ALERTS = 50    # Top N alerts to surface

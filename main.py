@@ -97,7 +97,7 @@ manager = ConnectionManager()
 @app.on_event("startup")
 async def startup():
     print("\n" + "="*60)
-    print("  GraphGuard v2 — Fraud Intelligence Platform")
+    print("  GraphGuard v2 - Fraud Intelligence Platform")
     print("="*60 + "\n")
 
     # Phase 1: Data
@@ -149,10 +149,18 @@ async def startup():
 
     # Phase 5: Risk Fusion
     fusion = RiskFusionEngine()
+    
+    # Build graph patterns dict for all accounts
+    graph_patterns = {
+        acc: graph_engine.get_patterns_for_account(acc)
+        for acc in data["accounts"]["account_id"]
+    }
+    
     fusion.fuse(
         state["edge_scores_per_account"],
         graph_engine.account_graph_scores,
         temporal_engine.account_temporal_scores,
+        graph_patterns=graph_patterns,
     )
     state["fusion_engine"] = fusion
 
@@ -161,7 +169,7 @@ async def startup():
 
     state["ready"] = True
     print("\n" + "="*60)
-    print("  ✓ Pipeline ready — open http://localhost:8000")
+    print("  [OK] Pipeline ready - open http://localhost:8000")
     print("="*60 + "\n")
 
 
@@ -309,7 +317,9 @@ async def websocket_live(ws: WebSocket):
                 idx = 0  # Loop
 
             tx = txns.iloc[idx].to_dict()
-            tx["edge_score"] = float(edge_scores[idx])
+            score = float(edge_scores[idx]) if idx < len(edge_scores) else 0.0
+            tx["edge_score"] = round(score, 4)
+            tx["risk_pct"] = round(score * 100, 1)
             tx["index"] = idx
 
             await ws.send_json({"type": "transaction", "data": tx})

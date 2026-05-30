@@ -930,3 +930,149 @@ body {
 .investigation-active .vis-network {
     background: radial-gradient(circle at center, rgba(239, 68, 68, 0.03) 0%, transparent 70%) !important;
 }
+
+/* ── Glass Panel ─────────────────────────────────────────────── */
+/* Used in HTML template and app.js dynamically injected elements */
+.glass-panel {
+    background: rgba(20, 26, 38, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(46, 61, 74, 0.55);
+}
+
+/* ── Cursor Glow ─────────────────────────────────────────────── */
+#cursor-glow {
+    position: fixed;
+    width: 420px;
+    height: 420px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(163, 220, 236, 0.05) 0%, transparent 70%);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+    transition: left 0.08s linear, top 0.08s linear;
+    will-change: left, top;
+}
+
+/* ── Breathing animation for graph placeholder icon ──────────── */
+.breathing-node {
+    animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 0.3;
+    }
+    50% {
+        transform: scale(1.15);
+        opacity: 0.6;
+    }
+}
+
+/* ── Transaction feed row slide-in ──────────────────────────── */
+/* Applied dynamically via app.js addTransactionToFeed()         */
+.slide-in-alert {
+    animation: slideInAlert 0.25s ease-out both;
+}
+
+@keyframes slideInAlert {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Critical alert pulse ring ──────────────────────────────── */
+/* Applied by app.js to CRITICAL severity alert cards           */
+.critical-pulse {
+    animation: criticalPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes criticalPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+    50% {
+        box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.18);
+    }
+}
+
+/* ── Progress bar animated fill ─────────────────────────────── */
+/* Transition applied when data-width attr is set via JS        */
+.progress-bar-fill {
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Investigation panel reveal animation ───────────────────── */
+/* Applied to #invContent class list in renderInvestigation()   */
+.animate-on-reveal > * {
+    animation: fadeUp 0.45s ease-out both;
+}
+
+.animate-on-reveal > *:nth-child(2) { animation-delay: 0.05s; }
+.animate-on-reveal > *:nth-child(3) { animation-delay: 0.10s; }
+
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Material Symbols font-variation override ───────────────── */
+/* Ensure icons render correctly with the loaded variable font  */
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined', sans-serif;
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+    font-style: normal;
+    display: inline-block;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: normal;
+    word-wrap: normal;
+    white-space: nowrap;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    vertical-align: middle;
+}
+
+/* ── Resolve Tailwind Preflight conflict with vis-network ────── */
+/* Tailwind CDN resets canvas; vis-network needs it block        */
+#graphCanvas canvas {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ── Ensure body base styles win over Tailwind preflight ─────── */
+body {
+    font-family: var(--font-main);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* ── Scrollbar polish ────────────────────────────────────────── */
+.overflow-y-auto::-webkit-scrollbar,
+.flex-1::-webkit-scrollbar {
+    width: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track,
+.flex-1::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.flex-1::-webkit-scrollbar-thumb {
+    background: rgba(163, 220, 236, 0.15);
+    border-radius: 4px;
+}

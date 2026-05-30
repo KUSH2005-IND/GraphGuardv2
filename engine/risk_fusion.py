@@ -25,10 +25,12 @@ class RiskFusionEngine:
 
     def fuse(self, edge_scores: Dict[str, float],
              graph_scores: Dict[str, float],
-             temporal_scores: Dict[str, float]) -> Dict[str, float]:
+             temporal_scores: Dict[str, float],
+             graph_patterns: Dict[str, Dict] = None) -> Dict[str, float]:
         """
         Compute final risk = 0.4 * edge + 0.4 * graph + 0.2 * temporal.
         """
+        self.graph_patterns = graph_patterns or {}
         print("[RiskFusion] Fusing intelligence signals...")
 
         all_accounts = set(edge_scores.keys()) | set(graph_scores.keys()) | set(temporal_scores.keys())
@@ -68,7 +70,16 @@ class RiskFusionEngine:
                 "edge_score": breakdown.get("edge_score", 0),
                 "graph_score": breakdown.get("graph_score", 0),
                 "temporal_score": breakdown.get("temporal_score", 0),
+                "pattern": self._classify_pattern(account_id),
             })
+
+    def _classify_pattern(self, account_id: str) -> str:
+        patterns = self.graph_patterns.get(account_id, {})
+        if patterns.get("cycles"):        return "Circular Flow"
+        if patterns.get("is_mule_hub"):   return "Mule Network"
+        if patterns.get("dormant"):       return "Dormant Activation"
+        if patterns.get("layering_chains"): return "Layering Chain"
+        return "Anomalous Transfer"
 
     def _get_severity(self, score: float) -> Optional[str]:
         for level in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
