@@ -356,12 +356,12 @@ curl http://localhost:8000/api/investigation/ACC1000242
 
 | Deliverable | Link |
 | :--- | :--- |
-| **D1 — Problem + Solution Brief** | [Google Doc] |
+| **D1 — Problem + Solution Brief** | https://docs.google.com/document/d/1HGcPAzCSyMpehUnt9489ikr_KoAtcZTBxD27znAMIVA/edit?usp=sharing |
 | **D2 — Working Prototype** | [https://github.com/KUSH2005-IND/GraphGuardv2](https://github.com/KUSH2005-IND/GraphGuardv2) |
-| **D3 — Technical Architecture** | [Google Doc] |
-| **D4 — Demo Video** | [YouTube Unlisted] |
-| **D5a — Pitch Deck** | [Google Slides] |
-| **D5b — Pitch Video** | [YouTube Unlisted] |
+| **D3 — Technical Architecture** |https://docs.google.com/document/d/1alD9tGf4UC8FuQa3fZ3WRQOqvdkrMSJp0qXVD6fvEXk/edit?usp=sharing|
+| **D4 — Demo Video** | https://youtu.be/1GJyNT-3mnA|
+| **D5a — Pitch Deck** |https://docs.google.com/presentation/d/1gqZZBToAzu6giSZ-A6gRRDd7XZvu8G-X356jq-to8V8/edit?usp=sharing|
+| **D5b — Pitch Video** | https://youtu.be/N5i4HM6fwg0|
 
 ---
 
