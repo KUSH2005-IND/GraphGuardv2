@@ -12,6 +12,7 @@ from collections import defaultdict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 import pandas as pd
 import numpy as np
@@ -35,7 +36,12 @@ from engine.risk_fusion import RiskFusionEngine
 from engine.investigation import InvestigationEngine
 
 # ── Initialize app ───────────────────────────────────────────────────────
-app = FastAPI(title="GraphGuard v2", description="Fraud Intelligence Platform")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup()
+    yield
+
+app = FastAPI(title="GraphGuard v2", description="Fraud Intelligence Platform", lifespan=lifespan)
 app.add_middleware(APIKeyMiddleware)
 
 # Global state
@@ -94,7 +100,6 @@ manager = ConnectionManager()
 
 
 # ── Startup: build entire pipeline ──────────────────────────────────────
-@app.on_event("startup")
 async def startup():
     print("\n" + "="*60)
     print("  GraphGuard v2 - Fraud Intelligence Platform")
@@ -210,8 +215,9 @@ async def alerts():
         return []
     fusion = state["fusion_engine"]
     alerts_list = fusion.get_alerts()
-    # Enrich with account info
+    # Enrich with account info and primary pattern
     acc_df = state["accounts_df"]
+    graph = state["graph_engine"]
     for alert in alerts_list:
         acc = acc_df[acc_df["account_id"] == alert["account_id"]]
         if len(acc) > 0:
@@ -219,6 +225,18 @@ async def alerts():
             alert["holder_name"] = acc["holder_name"]
             alert["account_type"] = acc["account_type"]
             alert["branch"] = acc["branch"]
+        # Derive primary_pattern from graph engine detections
+        patterns = graph.get_patterns_for_account(alert["account_id"])
+        if patterns["cycles"]:
+            alert["primary_pattern"] = "Circular Laundering"
+        elif patterns["layering_chains"]:
+            alert["primary_pattern"] = "Layering Chain"
+        elif patterns["is_mule_hub"]:
+            alert["primary_pattern"] = "Hub-and-Spoke Mule Network"
+        elif patterns["temporal_burst"]:
+            alert["primary_pattern"] = "Temporal Burst Activity"
+        else:
+            alert["primary_pattern"] = "Anomalous Transfer"
     return alerts_list
 
 

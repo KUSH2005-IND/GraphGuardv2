@@ -18,6 +18,7 @@ const state = {
     cachedOverviewGraph: null,     // cached overview graph data
     cachedInvestigationGraph: null, // cached investigation graph data
     legendVisible: false,
+    allAlerts: [],                  // cached alerts for search filtering
 };
 
 // ── DOM References ───────────────────────────────────────────────────
@@ -43,6 +44,7 @@ const dom = {
     legendPathEdge: document.getElementById('legendPathEdge'),
     fraudPatternPanel: document.getElementById('fraudPatternPanel'),
     fraudPatternList: document.getElementById('fraudPatternList'),
+    searchInput: document.getElementById('searchInput'),
 };
 
 // ── Initialize ───────────────────────────────────────────────────────
@@ -86,6 +88,23 @@ async function init() {
         }
     });
 
+    // Search functionality
+    if (dom.searchInput) {
+        dom.searchInput.addEventListener('input', () => {
+            const query = dom.searchInput.value.trim().toLowerCase();
+            if (!query) {
+                renderAlerts(state.allAlerts);
+                return;
+            }
+            const filtered = state.allAlerts.filter(a =>
+                (a.account_id && a.account_id.toLowerCase().includes(query)) ||
+                (a.holder_name && a.holder_name.toLowerCase().includes(query)) ||
+                (a.primary_pattern && a.primary_pattern.toLowerCase().includes(query))
+            );
+            renderAlerts(filtered);
+        });
+    }
+
     console.log('[GraphGuard] Ready.');
 }
 
@@ -94,17 +113,17 @@ function togglePanel(forceOpen = null) {
     const panel = dom.invPanel;
     if (!panel) return;
     
-    const isCollapsed = panel.classList.contains('translate-y-[160px]');
+    const isCollapsed = panel.classList.contains('translate-y-[360px]');
     const shouldOpen = forceOpen !== null ? forceOpen : isCollapsed;
     
     if (shouldOpen) {
         panel.style.display = 'flex';
         setTimeout(() => {
-            panel.classList.remove('translate-y-[160px]');
+            panel.classList.remove('translate-y-[360px]');
         }, 10);
         triggerChartAnimations();
     } else {
-        panel.classList.add('translate-y-[160px]');
+        panel.classList.add('translate-y-[360px]');
         setTimeout(() => {
             panel.style.display = 'none';
         }, 300);
@@ -131,8 +150,9 @@ async function loadAlerts() {
     try {
         const res = await fetch('/api/alerts', { headers: { 'X-API-Key': 'GG-SECRET-KEY-2026' } });
         const alerts = await res.json();
+        state.allAlerts = alerts;
         renderAlerts(alerts);
-        if (dom.alertCount) dom.alertCount.textContent = alerts.length;
+        if (dom.alertCount) dom.alertCount.textContent = `${alerts.length} Pending`;
         if (dom.statAlerts) animateCounter(dom.statAlerts, alerts.length);
     } catch (e) {
         console.error('[Alerts]', e);
@@ -822,7 +842,7 @@ function renderInvestigation(inv, accountId) {
         <div class="col-span-6 flex flex-col h-full overflow-hidden">
             <div class="flex justify-between items-center mb-2">
                 <h3 class="font-arbutus text-[9px] text-on-surface-variant uppercase">Generated STR Narrative</h3>
-                <button class="text-[9px] text-primary hover:underline font-arbutus uppercase">Export PDF</button>
+                <button onclick="exportPDF()" class="text-[9px] text-primary hover:underline font-arbutus uppercase">Export PDF</button>
             </div>
             <div class="flex-1 glass-panel p-3 rounded-lg border border-primary/10 overflow-y-auto">
                 <p class="font-body-md text-on-surface-variant leading-relaxed text-[12px] whitespace-pre-wrap">
@@ -905,6 +925,74 @@ function escapeHtml(text) {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ── Sidebar Toggle ───────────────────────────────────────────────────
+let sidebarOpen = true;
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const main = document.getElementById('mainContent');
+    if (!sidebar || !main) return;
+    
+    sidebarOpen = !sidebarOpen;
+    if (sidebarOpen) {
+        sidebar.style.transform = 'translateX(0)';
+        main.style.marginLeft = '240px';
+    } else {
+        sidebar.style.transform = 'translateX(-100%)';
+        main.style.marginLeft = '0';
+    }
+}
+
+// ── Export PDF ───────────────────────────────────────────────────────
+function exportPDF() {
+    const invContent = document.getElementById('invContent');
+    if (!invContent) {
+        alert('No investigation data to export. Select an alert first.');
+        return;
+    }
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert('Please allow pop-ups to export PDF.');
+        return;
+    }
+    
+    const accountId = state.currentAccountId || 'Unknown';
+    const now = new Date().toLocaleString('en-IN');
+    
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html><head>
+            <title>GraphGuard v2 — STR Report — ${accountId}</title>
+            <style>
+                body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1a1a2e; background: #fff; }
+                h1 { font-size: 22px; color: #0c4f5d; border-bottom: 2px solid #88c0d0; padding-bottom: 8px; margin-bottom: 4px; }
+                .meta { font-size: 11px; color: #666; margin-bottom: 24px; }
+                .section { margin-bottom: 20px; }
+                .section-title { font-size: 13px; font-weight: 600; color: #0c4f5d; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+                .content { font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+                .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+                .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 10px; color: #999; text-align: center; }
+                @media print {
+                    body { padding: 20px; }
+                    .no-print { display: none; }
+                }
+            </style>
+        </head><body>
+            <h1>\u{1f6e1} GraphGuard v2 — Suspicious Transaction Report</h1>
+            <div class="meta">Account: <strong>${accountId}</strong> &nbsp;|&nbsp; Generated: ${now}</div>
+            <div class="section">
+                <div class="section-title">Investigation Details</div>
+                <div class="content">${invContent.innerText}</div>
+            </div>
+            <div class="footer">
+                GraphGuard v2 Fraud Intelligence Platform — Confidential — Auto-generated Report
+            </div>
+            <script>window.onload = function() { window.print(); }<\/script>
+        </body></html>
+    `);
+    printWindow.document.close();
 }
 
 // ── Start ────────────────────────────────────────────────────────────
