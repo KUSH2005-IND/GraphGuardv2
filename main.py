@@ -21,10 +21,6 @@ import config
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/api/") and request.url.path != "/api/status":
-            api_key = request.headers.get("X-API-Key")
-            if api_key != config.API_KEY:
-                return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "Unauthorized API Key"})
         return await call_next(request)
 from data.generator import BankingEcosystemGenerator
 from data.fraud_injector import FraudCampaignInjector
