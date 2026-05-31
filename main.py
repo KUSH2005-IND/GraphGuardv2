@@ -193,7 +193,7 @@ async def root():
 
 # ── API Endpoints ────────────────────────────────────────────────────────
 @app.get("/api/status")
-async def status():
+async def system_status():
     return {"ready": state["ready"]}
 
 
