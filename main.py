@@ -67,7 +67,11 @@ class ConnectionManager:
 
     async def connect(self, ws: WebSocket) -> bool:
         origin = ws.headers.get("origin")
-        if origin and origin not in config.ALLOWED_ORIGINS:
+        if (
+            origin
+            and "*" not in config.ALLOWED_ORIGINS
+            and origin not in config.ALLOWED_ORIGINS
+        ):
             await ws.close(code=1008, reason="Origin not allowed")
             return False
 
