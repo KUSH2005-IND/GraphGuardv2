@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from collections import defaultdict
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, status, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from contextlib import asynccontextmanager
@@ -185,6 +185,10 @@ app.mount("/static", StaticFiles(directory=str(config.FRONTEND_DIR)), name="stat
 @app.get("/")
 async def root():
     return FileResponse(str(config.FRONTEND_DIR / "index.html"))
+
+@app.head("/")
+async def root_head():
+    return Response(status_code=200)
 
 
 # ── API Endpoints ────────────────────────────────────────────────────────
